@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>슬라이드 미리보기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;font-family:'Noto Sans KR','Segoe UI',sans-serif;background:#111827;color:#E5E7EB;font-size:14px}
+.layout{display:flex;height:100vh}
+.sidebar{width:188px;flex-shrink:0;background:#1F2937;border-right:1px solid rgba(255,255,255,0.07);display:flex;flex-direction:column;overflow:hidden}
+.sb-head{padding:12px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.07);font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.08em}
+.thumbs{flex:1;overflow-y:auto;padding:8px;scrollbar-width:thin;scrollbar-color:#374151 transparent}
+.thumbs::-webkit-scrollbar{width:4px}
+.thumbs::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
+.thumb{border-radius:5px;overflow:hidden;margin-bottom:7px;cursor:pointer;border:2px solid transparent;transition:border-color .15s;position:relative}
+.thumb.active{border-color:#3B82F6}
+.thumb:hover:not(.active){border-color:rgba(59,130,246,0.45)}
+.thumb-body{width:100%;padding-top:56.25%;position:relative;overflow:hidden;background:#0F172A}
+.thumb-inner{position:absolute;top:0;left:0;width:960px;height:540px;transform-origin:top left;overflow:hidden}
+.thumb-label{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.55);font-size:9px;color:#fff;text-align:center;padding:2px 0;line-height:1.4}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.toolbar{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:56px;background:#1F2937;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0;gap:14px}
+.tb-left{display:flex;align-items:center;gap:10px;min-width:0}
+.tb-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
+.tb-badge{font-size:10px;padding:2px 8px;border-radius:99px;font-weight:600;background:#374151;color:#9CA3AF}
+.tb-right{display:flex;gap:8px;flex-shrink:0;align-items:center}
+.download-input{width:220px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:#111827;color:#E5E7EB;padding:0 10px;font-size:12px;font-family:inherit;outline:none}
+.download-input:focus{border-color:#60A5FA}
+.tbtn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#D1D5DB;text-decoration:none;transition:background .15s;font-family:inherit}
+.tbtn:hover{background:rgba(255,255,255,0.08)}
+.tbtn-dl{background:#2563EB;border-color:#2563EB;color:#fff}
+.tbtn-dl:hover{background:#1D4ED8}
+.workspace{flex:1;display:flex;min-height:0}
+.stage{flex:1;display:flex;flex-direction:column;min-width:0}
+.viewport{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden;background:#111827}
+.scaler-wrap{position:relative}
+.slide-scaler{width:960px;height:540px;transform-origin:top left;box-shadow:0 12px 40px rgba(0,0,0,.6);border-radius:2px;overflow:hidden;position:relative;background:#fff}
+.nav-bar{display:flex;align-items:center;justify-content:center;gap:14px;height:46px;background:#1F2937;border-top:1px solid rgba(255,255,255,0.07);flex-shrink:0}
+.nav-btn{width:30px;height:30px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#D1D5DB;font-size:13px;cursor:pointer;transition:background .15s;display:flex;align-items:center;justify-content:center}
+.nav-btn:hover:not(:disabled){background:rgba(255,255,255,0.1)}
+.nav-btn:disabled{opacity:.3;cursor:not-allowed}
+.page-info{font-size:13px;color:#6B7280;min-width:58px;text-align:center;font-variant-numeric:tabular-nums}
+.editor{width:340px;flex-shrink:0;background:#182131;border-left:1px solid rgba(255,255,255,0.07);display:flex;flex-direction:column;min-height:0}
+.editor-head{padding:16px 16px 12px;border-bottom:1px solid rgba(255,255,255,0.07)}
+.editor-title{font-size:14px;font-weight:700}
+.editor-sub{font-size:12px;color:#93A3B8;line-height:1.55;margin-top:4px}
+.editor-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;scrollbar-width:thin;scrollbar-color:#374151 transparent}
+.editor-body::-webkit-scrollbar{width:6px}
+.editor-body::-webkit-scrollbar-thumb{background:#374151;border-radius:999px}
+.field{display:flex;flex-direction:column;gap:7px}
+.field label{font-size:12px;font-weight:600;color:#C8D1DF}
+.field-help{font-size:11px;color:#7B8AA2;line-height:1.5}
+.type-chip{display:inline-flex;align-items:center;padding:4px 9px;border-radius:999px;background:#243247;color:#B8C5D8;font-size:11px;font-weight:700;align-self:flex-start}
+.editor-input,.editor-textarea{width:100%;border-radius:9px;border:1px solid rgba(255,255,255,0.12);background:#111827;color:#E5E7EB;padding:10px 12px;font-size:13px;font-family:inherit;outline:none}
+.editor-input:focus,.editor-textarea:focus{border-color:#60A5FA}
+.editor-textarea{min-height:110px;resize:vertical;line-height:1.6}
+.editor-actions{display:flex;gap:8px;flex-wrap:wrap}
+.status{display:none;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}
+.status.ok{display:block;background:#12261B;color:#86EFAC}
+.status.err{display:block;background:#2A1515;color:#FCA5A5}
+.status.load{display:block;background:#10243D;color:#93C5FD}
+.loading-screen{display:flex;align-items:center;justify-content:center;height:100%;color:#6B7280;font-size:14px;gap:10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:18px;height:18px;border:2px solid #374151;border-top-color:#3B82F6;border-radius:50%;animation:spin .7s linear infinite}
+@media (max-width: 1200px){
+  .editor{width:300px}
+  .download-input{width:180px}
+}
+@media (max-width: 980px){
+  .layout{flex-direction:column}
+  .sidebar{display:none}
+  .workspace{flex-direction:column}
+  .editor{width:auto;height:320px;border-left:none;border-top:1px solid rgba(255,255,255,0.07)}
+  .toolbar{height:auto;padding:12px;align-items:flex-start;flex-direction:column}
+  .tb-right{width:100%;flex-wrap:wrap}
+  .download-input{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sb-head">슬라이드 목록</div>
+    <div class="thumbs" id="thumbs">
+      <div class="loading-screen"><div class="spinner"></div> 로딩 중</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="toolbar">
+      <div class="tb-left">
+        <div class="tb-title" id="tbTitle">슬라이드 미리보기</div>
+        <div class="tb-badge" id="tbBadge"></div>
+      </div>
+      <div class="tb-right">
+        <input type="text" id="downloadNameInput" class="download-input" placeholder="다운로드 파일명">
+        <a href="/" class="tbtn">← 돌아가기</a>
+        <button type="button" class="tbtn tbtn-dl" id="dlBtn">⬇ 다운로드</button>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="stage">
+        <div class="viewport" id="viewport">
+          <div class="scaler-wrap" id="scalerWrap">
+            <div class="slide-scaler" id="slideCanvas">
+              <div class="loading-screen"><div class="spinner"></div> 슬라이드 불러오는 중...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="nav-bar">
+          <button class="nav-btn" id="prevBtn" disabled>◀</button>
+          <span class="page-info" id="pageInfo">— / —</span>
+          <button class="nav-btn" id="nextBtn" disabled>▶</button>
+        </div>
+      </div>
+
+      <aside class="editor">
+        <div class="editor-head">
+          <div class="editor-title">슬라이드 수정</div>
+          <div class="editor-sub">현재 슬라이드 내용을 바꾼 뒤 저장하면 PPT가 다시 생성됩니다.</div>
+        </div>
+        <div class="editor-body">
+          <div class="type-chip" id="slideTypeChip">내용 슬라이드</div>
+
+          <div class="field">
+            <label for="titleInput">제목</label>
+            <input type="text" id="titleInput" class="editor-input" placeholder="슬라이드 제목">
+          </div>
+
+          <div class="field" id="subtitleField">
+            <label for="subtitleInput">부제</label>
+            <input type="text" id="subtitleInput" class="editor-input" placeholder="필요할 때만 입력">
+            <div class="field-help" id="subtitleHelp">타이틀 슬라이드나 split 레이아웃의 content 슬라이드에서 활용됩니다.</div>
+          </div>
+
+          <div class="field" id="layoutField">
+            <label for="layoutSelect">내용 레이아웃</label>
+            <select id="layoutSelect" class="editor-input">
+              <option value="auto">자동 추천</option>
+              <option value="classic">클래식</option>
+              <option value="split">분할</option>
+              <option value="card">카드</option>
+              <option value="highlight">하이라이트</option>
+              <option value="process">프로세스</option>
+              <option value="compare">비교</option>
+            </select>
+            <div class="field-help">현재 슬라이드 내용에 맞는 구성을 자동 추천하거나, 원하는 레이아웃으로 직접 고정할 수 있습니다.</div>
+          </div>
+
+          <div class="field">
+            <label for="sourcePagesInput">근거 페이지</label>
+            <input type="text" id="sourcePagesInput" class="editor-input" placeholder="예: 12-14">
+            <div class="field-help">이 슬라이드가 참고한 PDF 페이지 범위입니다. 이미지와 원문 검수에 활용됩니다.</div>
+          </div>
+
+          <div class="field" id="listField">
+            <label for="listInput" id="listLabel">포인트</label>
+            <textarea id="listInput" class="editor-textarea" placeholder="한 줄에 한 항목씩 입력하세요"></textarea>
+            <div class="field-help" id="listHelp">줄바꿈 하나가 항목 하나로 저장됩니다.</div>
+          </div>
+
+          <div class="field">
+            <label for="notesInput">발표자 노트</label>
+            <textarea id="notesInput" class="editor-textarea" placeholder="발표할 때 참고할 메모를 입력하세요"></textarea>
+          </div>
+
+          <div class="status" id="editorStatus"></div>
+
+          <div class="editor-actions">
+            <button type="button" class="tbtn tbtn-dl" id="saveBtn">저장하고 PPT 다시 생성</button>
+            <button type="button" class="tbtn" id="refreshBtn">현재 슬라이드 다시 불러오기</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<script>
+const UID = "{{ uid }}";
+const INITIAL_DOWNLOAD_NAME = new URLSearchParams(location.search).get('name') || '';
+
+let slides = [];
+let design = { preset: 'corporate' };
+let resolvedTheme = null;
+let cur = 0;
+let fileName = '';
+let pdfName = '';
+let assets = [];
+let pagePlan = {};
+
+const LEGACY_THEME_PRESET_MAP = {
+  navy: 'corporate',
+  terra: 'terra',
+  mono: 'mono',
+  forest: 'forest',
+};
+
+const TYPE_LABELS = {
+  title: '제목 슬라이드',
+  agenda: '목차 슬라이드',
+  content: '내용 슬라이드',
+  summary: '요약 슬라이드',
+};
+
+const CONTENT_LAYOUT_LABELS = {
+  auto: '자동 추천',
+  classic: '클래식',
+  split: '분할',
+  card: '카드',
+  highlight: '하이라이트',
+  process: '프로세스',
+  compare: '비교',
+};
+
+const JS_PRESETS = {
+  corporate: { name: '코퍼레이트', header: '#1E3A5F', accent: '#4A90D9', confirm: '#1D9E75', light: '#EBF2FA', bg: '#FFFFFF', text: '#1A2233', title_sub: '#A8C8E8', title_dark: '#152B4A', header_style: 'full', bullet_style: 'circle', density: 'standard' },
+  startup: { name: '스타트업', header: '#0F172A', accent: '#6C63FF', confirm: '#2DD4BF', light: '#F0EFFF', bg: '#FAFAFD', text: '#111827', title_sub: '#A09CFF', title_dark: '#070D1C', header_style: 'bottom_line', bullet_style: 'square', density: 'spacious' },
+  academic: { name: '아카데믹', header: '#2C3E50', accent: '#E74C3C', confirm: '#27AE60', light: '#ECF0F1', bg: '#FFFFFF', text: '#1A1A1A', title_sub: '#BDC3C7', title_dark: '#1A2835', header_style: 'left_bar', bullet_style: 'dash', density: 'compact' },
+  creative: { name: '크리에이티브', header: '#FF6B6B', accent: '#FFE66D', confirm: '#4ECDC4', light: '#FFF5F5', bg: '#FFFFFF', text: '#2D2D2D', title_sub: '#FFC8C8', title_dark: '#CC4444', header_style: 'full', bullet_style: 'number', density: 'spacious' },
+  terra: { name: '테라코타', header: '#7A3B2E', accent: '#C86B4A', confirm: '#D49A3A', light: '#FDF0E8', bg: '#FFFBF7', text: '#2C1A12', title_sub: '#F0C4A8', title_dark: '#5A2A1E', header_style: 'full', bullet_style: 'circle', density: 'standard' },
+  mono: { name: '모노 미니멀', header: '#181818', accent: '#585858', confirm: '#383838', light: '#F2F2F2', bg: '#FFFFFF', text: '#1A1A1A', title_sub: '#B8B8B8', title_dark: '#0A0A0A', header_style: 'bottom_line', bullet_style: 'dash', density: 'standard' },
+  forest: { name: '포레스트', header: '#1C402E', accent: '#2E7D52', confirm: '#5AA86A', light: '#E8F5ED', bg: '#F7FCF8', text: '#122A1C', title_sub: '#A0CCB4', title_dark: '#102A1C', header_style: 'full', bullet_style: 'circle', density: 'standard' },
+  pastel: { name: '소프트 파스텔', header: '#7E57C2', accent: '#F06AA1', confirm: '#26C6DA', light: '#F3E5F5', bg: '#FFFFFF', text: '#31273F', title_sub: '#D1C4E9', title_dark: '#512DA8', header_style: 'left_bar', bullet_style: 'circle', density: 'spacious' },
+};
+
+const DENSITY_CONFIG = {
+  compact: { gap: 18, size: 16 },
+  standard: { gap: 22, size: 18 },
+  spacious: { gap: 26, size: 19 },
+};
+const DEFAULT_TITLE_FONT_SIZE = 32;
+const DEFAULT_SUBTITLE_FONT_SIZE = 18;
+const DEFAULT_BODY_FONT_SIZE = 18;
+
+function esc(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function cssFont(value) {
+  return String(value || 'Malgun Gothic').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function normalizePresetId(preset) {
+  return LEGACY_THEME_PRESET_MAP[preset] || preset || 'corporate';
+}
+
+function normalizeDesign(data) {
+  const base = {
+    preset: 'corporate',
+    primary_color: null,
+    accent_color: null,
+    font_name: 'Malgun Gothic',
+    company_name: '',
+    presenter_name: '',
+    logo_uid: null,
+    footer_text: '',
+    footer_enabled: true,
+    slide_number: true,
+    title_font_size: null,
+    subtitle_font_size: null,
+    body_font_size: null,
+    content_layout: 'auto',
+  };
+  if (!data || typeof data !== 'object') return { ...base };
+  return { ...base, ...data };
+}
+
+function defaultDownloadName(pdfNameValue, fallbackFilename) {
+  const base = String(pdfNameValue || '').replace(/\.pdf$/i, '').trim()
+    || String(fallbackFilename || '').replace(/\.pptx$/i, '').trim()
+    || '강의교안';
+  return `${base}_강의교안.pptx`;
+}
+
+function buildDownloadUrl(uid, downloadName) {
+  const params = new URLSearchParams();
+  if (String(downloadName || '').trim()) {
+    params.set('name', downloadName.trim());
+  }
+  const qs = params.toString();
+  return '/download/' + encodeURIComponent(uid) + (qs ? `?${qs}` : '');
+}
+
+function coerceFontSize(value, fallback, min, max) {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function resolveFontSizes(designConfig) {
+  const title = coerceFontSize(designConfig.title_font_size, DEFAULT_TITLE_FONT_SIZE, 20, 56);
+  const subtitle = coerceFontSize(designConfig.subtitle_font_size, DEFAULT_SUBTITLE_FONT_SIZE, 12, 36);
+  const body = coerceFontSize(designConfig.body_font_size, DEFAULT_BODY_FONT_SIZE, 12, 28);
+  return {
+    title,
+    subtitle,
+    body,
+    coverTitle: Math.min(title + 10, 64),
+    coverSubtitle: Math.min(subtitle + 4, 40),
+  };
+}
+
+function bodyMetrics(t) {
+  const density = DENSITY_CONFIG[t.density] || DENSITY_CONFIG.standard;
+  const extraGap = Math.max(t.body_font_size - density.size, 0) * 1.25;
+  return {
+    gap: density.gap + extraGap,
+    size: t.body_font_size,
+  };
+}
+
+function resolveTheme(designConfig) {
+  const presetId = normalizePresetId(designConfig.preset);
+  const preset = JS_PRESETS[presetId] || JS_PRESETS.corporate;
+  const t = { ...preset };
+  const sizes = resolveFontSizes(designConfig);
+
+  if (designConfig.primary_color) {
+    t.header = designConfig.primary_color;
+    t.title_dark = designConfig.primary_color;
+  }
+
+  if (designConfig.accent_color) {
+    t.accent = designConfig.accent_color;
+    t.confirm = designConfig.accent_color;
+  }
+
+  t.preset_id = presetId;
+  t.preset_name = preset.name;
+  t.content_layout = normalizeLayoutId(designConfig.content_layout || 'auto');
+  t.font_name = designConfig.font_name || 'Malgun Gothic';
+  t.company_name = designConfig.company_name || '';
+  t.presenter_name = designConfig.presenter_name || '';
+  t.footer_text = designConfig.footer_text || '';
+  t.footer_enabled = designConfig.footer_enabled !== false;
+  t.slide_number = designConfig.slide_number !== false;
+  t.title_font_size = sizes.title;
+  t.subtitle_font_size = sizes.subtitle;
+  t.body_font_size = sizes.body;
+  t.cover_title_font_size = sizes.coverTitle;
+  t.cover_subtitle_font_size = sizes.coverSubtitle;
+  return t;
+}
+
+function normalizeLayoutId(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['auto', 'classic', 'split', 'card', 'highlight', 'process', 'compare'].includes(normalized) ? normalized : 'auto';
+}
+
+function inferAutoLayout(data) {
+  const points = (data.points || []).map(point => String(point || '').trim()).filter(Boolean);
+  const subtitle = String(data.subtitle || '').trim();
+
+  if (!points.length) return 'classic';
+
+  const lengths = points.map(point => point.length);
+  const maxLen = Math.max(...lengths);
+  const firstLen = lengths[0];
+  const shortPoints = lengths.filter(length => length <= 36).length;
+  const remaining = lengths.slice(1);
+  const remainingAvg = remaining.length ? remaining.reduce((sum, value) => sum + value, 0) / remaining.length : 0;
+
+  if (subtitle && points.length <= 4) return 'split';
+  if (points.length >= 4 && shortPoints >= Math.min(points.length, 4) && maxLen <= 60) return 'card';
+  if (points.length <= 2) return 'highlight';
+  if (firstLen >= 42 && (points.length <= 4 || firstLen >= remainingAvg + 12)) return 'highlight';
+  if (points.length === 3 && subtitle) return 'split';
+  return 'classic';
+}
+
+function resolveContentLayout(data, t) {
+  const slideLayout = normalizeLayoutId(data.layout);
+  const themeLayout = normalizeLayoutId(t.content_layout);
+
+  if (slideLayout !== 'auto') return slideLayout;
+  if (themeLayout !== 'auto') return themeLayout;
+  return inferAutoLayout(data);
+}
+
+function renderLogo(designConfig) {
+  if (!designConfig.logo_uid) return '';
+  return `<img src="/api/logo/${encodeURIComponent(designConfig.logo_uid)}" style="position:absolute;top:8px;right:12px;max-width:80px;max-height:56px;object-fit:contain" onerror="this.style.display='none'">`;
+}
+
+function slideImageUrl(data) {
+  if (!data || !data.image_bundle_uid || !data.image_asset_name) return '';
+  return `/api/pdf-asset/${encodeURIComponent(data.image_bundle_uid)}/${encodeURIComponent(data.image_asset_name)}`;
+}
+
+function renderSlideImage(data, left, top, width, height) {
+  const url = slideImageUrl(data);
+  if (!url) return '';
+  return `<div style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;border-radius:14px;background:#F7F9FC;border:1px solid #DEE5F0;padding:8px;overflow:hidden">
+    <img src="${url}" style="width:100%;height:100%;object-fit:contain;border-radius:10px" onerror="this.parentElement.style.display='none'">
+  </div>`;
+}
+
+function renderFooter(t, slideNum) {
+  const footerSize = Math.max(t.body_font_size - 8, 10);
+  if (!t.footer_enabled) {
+    return t.slide_number
+      ? `<div style="position:absolute;right:18px;bottom:10px;font-size:${footerSize}px;color:${t.text}">${slideNum}</div>`
+      : '';
+  }
+  return `<div style="position:absolute;left:0;right:0;bottom:0;height:34px;background:${t.light};display:flex;align-items:center;padding:0 18px;gap:8px">
+    <div style="flex:1;font-size:${footerSize}px;color:${t.accent};overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(t.footer_text)}</div>
+    ${t.slide_number ? `<div style="font-size:${footerSize}px;color:${t.text}">${slideNum}</div>` : ''}
+  </div>`;
+}
+
+function renderHeader(title, t) {
+  if (t.header_style === 'left_bar') {
+    return {
+      bodyTop: 98,
+      bodyLeft: 44,
+      html: `
+        <div style="position:absolute;left:0;top:0;bottom:0;width:16px;background:${t.accent}"></div>
+        <div style="position:absolute;left:40px;right:120px;top:22px;color:${t.header};font-size:${t.title_font_size}px;font-weight:700;line-height:1.3">${esc(title)}</div>
+      `,
+    };
+  }
+
+  if (t.header_style === 'bottom_line') {
+    return {
+      bodyTop: 104,
+      bodyLeft: 36,
+      html: `
+        <div style="position:absolute;left:36px;right:120px;top:22px;color:${t.header};font-size:${t.title_font_size}px;font-weight:700;line-height:1.3">${esc(title)}</div>
+        <div style="position:absolute;left:36px;right:36px;top:78px;height:4px;background:${t.accent};border-radius:999px"></div>
+      `,
+    };
+  }
+
+  return {
+    bodyTop: 118,
+    bodyLeft: 36,
+    html: `
+      <div style="position:absolute;left:0;right:0;top:0;height:92px;background:${t.header}"></div>
+      <div style="position:absolute;left:0;right:0;top:92px;height:5px;background:${t.accent}"></div>
+      <div style="position:absolute;left:36px;right:120px;top:20px;color:#FFFFFF;font-size:${t.title_font_size}px;font-weight:700;line-height:1.3">${esc(title)}</div>
+    `,
+  };
+}
+
+function renderBulletGlyph(style, index, t) {
+  if (style === 'square') return `<div style="width:14px;height:14px;background:${t.accent};border-radius:3px;flex-shrink:0;margin-top:4px"></div>`;
+  if (style === 'number') return `<div style="width:24px;height:24px;background:${t.accent};border-radius:6px;color:#FFFFFF;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${index + 1}</div>`;
+  if (style === 'dash') return `<div style="width:18px;height:4px;background:${t.accent};border-radius:999px;flex-shrink:0;margin-top:10px"></div>`;
+  return `<div style="width:14px;height:14px;background:${t.accent};border-radius:999px;flex-shrink:0;margin-top:4px"></div>`;
+}
+
+function renderBulletRows(points, t) {
+  const density = bodyMetrics(t);
+  return points.map((point, index) => `
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:${density.gap}px">
+      ${renderBulletGlyph(t.bullet_style, index, t)}
+      <div style="color:${t.text};font-size:${density.size}px;line-height:1.6">${esc(point)}</div>
+    </div>
+  `).join('');
+}
+
+function renderTitle(data, t, slideNum) {
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.header};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    <div style="position:absolute;left:0;right:0;bottom:0;height:114px;background:${t.title_dark}"></div>
+    <div style="position:absolute;left:58px;top:219px;width:360px;height:4px;background:${t.accent}"></div>
+    <div style="position:absolute;left:58px;right:70px;top:86px;color:#FFFFFF;font-size:${t.cover_title_font_size}px;font-weight:700;line-height:1.28">${esc(data.title || '강의 교안')}</div>
+    ${data.subtitle ? `<div style="position:absolute;left:58px;right:70px;top:236px;color:${t.title_sub};font-size:${t.cover_subtitle_font_size}px;line-height:1.5">${esc(data.subtitle)}</div>` : ''}
+    ${t.company_name ? `<div style="position:absolute;right:72px;bottom:52px;color:#FFFFFF;font-size:${Math.max(t.body_font_size - 2, 12)}px;font-weight:700;text-align:right">${esc(t.company_name)}</div>` : ''}
+    ${t.presenter_name ? `<div style="position:absolute;right:72px;bottom:28px;color:${t.title_sub};font-size:${Math.max(t.subtitle_font_size - 4, 11)}px;text-align:right">${esc(t.presenter_name)}</div>` : ''}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderAgenda(data, t, slideNum) {
+  const header = renderHeader(data.title || '목차', t);
+  const rows = (data.items || []).slice(0, 8).map((item, index) => `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <div style="width:26px;height:26px;background:${t.accent};border-radius:6px;color:#FFFFFF;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${index + 1}</div>
+      <div style="color:${t.text};font-size:${t.body_font_size}px;line-height:1.4">${esc(item)}</div>
+    </div>
+  `).join('');
+
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    <div style="position:absolute;left:${header.bodyLeft}px;right:34px;top:${header.bodyTop}px;bottom:44px">${rows}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentClassic(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const rows = renderBulletRows((data.points || []).slice(0, 5), t);
+  const hasImage = !!slideImageUrl(data);
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    <div style="position:absolute;left:${header.bodyLeft}px;right:${hasImage ? 290 : 34}px;top:${header.bodyTop}px;bottom:44px">${rows}</div>
+    ${renderSlideImage(data, 700, Math.max(header.bodyTop, 112), 220, 176)}
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentSplit(data, t, slideNum) {
+  const rows = renderBulletRows((data.points || []).slice(0, 5), t);
+  const hasImage = !!slideImageUrl(data);
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:324px;background:${t.header}"></div>
+    <div style="position:absolute;left:324px;top:36px;bottom:44px;width:4px;background:${t.accent}"></div>
+    <div style="position:absolute;left:30px;top:126px;width:250px;color:#FFFFFF;font-size:${Math.min(t.title_font_size + 2, 42)}px;font-weight:700;line-height:1.28">${esc(data.title || '')}</div>
+    ${data.subtitle ? `<div style="position:absolute;left:30px;top:252px;width:250px;color:${t.title_sub};font-size:${Math.max(t.subtitle_font_size - 1, 12)}px;line-height:1.5">${esc(data.subtitle)}</div>` : ''}
+    ${renderSlideImage(data, 362, 88, 540, 132)}
+    <div style="position:absolute;left:354px;right:34px;top:${hasImage ? 238 : 86}px;bottom:44px">${rows}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentCard(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const cards = (data.points || []).slice(0, 5).map(point => `
+    <div style="position:relative;background:${t.light};border-radius:12px;padding:18px 16px 14px;height:114px;overflow:hidden">
+      <div style="position:absolute;left:0;right:0;top:0;height:6px;background:${t.accent}"></div>
+      <div style="color:${t.text};font-size:${Math.max(t.body_font_size - 3, 13)}px;line-height:1.5">${esc(point)}</div>
+    </div>
+  `).join('');
+  const top = Math.max(header.bodyTop, 112);
+  const hasImage = !!slideImageUrl(data);
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    ${renderSlideImage(data, 36, top, 888, 118)}
+    <div style="position:absolute;left:26px;right:26px;top:${hasImage ? top + 136 : top}px;bottom:44px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-content:start">${cards}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentHighlight(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const points = (data.points || []).slice(0, 5);
+  const lead = points[0] || '';
+  const rest = points.slice(1, 4).map(point => `
+    <div style="background:${t.light};border-radius:12px;padding:14px 14px 12px;min-height:88px;color:${t.text};font-size:${Math.max(t.body_font_size - 2, 13)}px;line-height:1.5">${esc(point)}</div>
+  `).join('');
+  const top = Math.max(header.bodyTop, 112);
+  const hasImage = !!slideImageUrl(data);
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    ${lead ? `<div style="position:absolute;left:36px;right:${hasImage ? 282 : 36}px;top:${top}px;height:144px;background:${t.accent};border-radius:14px;padding:22px 26px;color:#FFFFFF;font-size:${Math.min(t.title_font_size + 4, 48)}px;font-weight:700;line-height:1.45">${esc(lead)}</div>` : ''}
+    ${renderSlideImage(data, 682, top, 242, 144)}
+    <div style="position:absolute;left:36px;right:36px;top:${top + 162}px;bottom:44px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-content:start">${rest}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentProcess(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const top = Math.max(header.bodyTop, 112);
+  const steps = (data.diagram_steps || data.points || []).slice(0, 4);
+  const extra = (data.points || []).slice(steps.length, steps.length + 2).map((point, index) => `
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <div style="width:12px;height:12px;border-radius:999px;background:${t.accent};margin-top:8px;flex-shrink:0"></div>
+      <div style="color:${t.text};font-size:${Math.max(t.body_font_size - 1, 14)}px;line-height:1.5">${esc(point)}</div>
+    </div>
+  `).join('');
+  const stepWidth = Math.min((856 - ((steps.length - 1) * 16)) / Math.max(steps.length, 1), 198);
+  const rowWidth = steps.length * stepWidth + Math.max(steps.length - 1, 0) * 16;
+  const start = 36 + (888 - rowWidth) / 2;
+
+  const stepHtml = steps.map((step, index) => `
+    <div style="position:absolute;left:${start + index * (stepWidth + 16)}px;top:${top + 34}px;width:${stepWidth}px;height:110px;background:${t.light};border-radius:14px;padding:14px 16px 12px;box-shadow:0 1px 0 rgba(0,0,0,.03)">
+      <div style="height:6px;background:${t.accent};border-radius:999px;margin-bottom:12px"></div>
+      <div style="font-size:${Math.max(t.body_font_size - 4, 12)}px;color:${t.accent};font-weight:700;margin-bottom:8px">STEP ${index + 1}</div>
+      <div style="font-size:${Math.max(t.body_font_size - 1, 14)}px;color:${t.text};line-height:1.45;font-weight:600">${esc(step)}</div>
+    </div>
+    ${index < steps.length - 1 ? `<div style="position:absolute;left:${start + (index + 1) * stepWidth + index * 16 - 10}px;top:${top + 78}px;color:${t.accent};font-size:${Math.max(t.body_font_size - 1, 14)}px;font-weight:700">→</div>` : ''}
+  `).join('');
+
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    ${stepHtml}
+    ${renderSlideImage(data, 720, top - 2, 204, 100)}
+    <div style="position:absolute;left:48px;right:48px;top:${top + 176}px;bottom:44px;display:grid;gap:12px;align-content:start">${extra}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentCompare(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const top = Math.max(header.bodyTop, 112);
+  const leftTitle = data.compare_left_title || '핵심 A';
+  const rightTitle = data.compare_right_title || '핵심 B';
+  const leftPoints = (data.compare_left_points || (data.points || []).slice(0, 2)).slice(0, 3);
+  const rightPoints = (data.compare_right_points || (data.points || []).slice(2, 4)).slice(0, 3);
+  const renderColumn = (items) => items.map((point, index) => `
+    <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">
+      <div style="width:12px;height:12px;border-radius:999px;background:${t.accent};margin-top:8px;flex-shrink:0"></div>
+      <div style="font-size:${Math.max(t.body_font_size - 1, 14)}px;color:${t.text};line-height:1.5">${esc(point)}</div>
+    </div>
+  `).join('');
+
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    ${renderSlideImage(data, 744, top - 2, 180, 92)}
+    <div style="position:absolute;left:36px;top:${top}px;width:414px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(leftTitle)}</div>
+    <div style="position:absolute;right:36px;top:${top}px;width:414px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(rightTitle)}</div>
+    <div style="position:absolute;left:476px;top:${top + 8}px;bottom:52px;width:4px;background:${t.accent};border-radius:999px"></div>
+    <div style="position:absolute;left:36px;top:${top + 70}px;width:414px;bottom:44px">${renderColumn(leftPoints)}</div>
+    <div style="position:absolute;right:36px;top:${top + 70}px;width:414px;bottom:44px">${renderColumn(rightPoints)}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderSummary(data, t, slideNum) {
+  const rows = (data.points || []).slice(0, 6).map(point => `
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+      <div style="width:20px;height:20px;background:${t.confirm};border-radius:4px;color:#FFFFFF;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">✓</div>
+      <div style="color:${t.text};font-size:${t.body_font_size}px;line-height:1.55">${esc(point)}</div>
+    </div>
+  `).join('');
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.light};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    <div style="position:absolute;left:0;right:0;top:0;height:98px;background:${t.header}"></div>
+    <div style="position:absolute;left:42px;right:120px;top:24px;color:#FFFFFF;font-size:${t.title_font_size}px;font-weight:700;line-height:1.3">${esc(data.title || '핵심 요약')}</div>
+    <div style="position:absolute;left:36px;right:34px;top:114px;bottom:44px">${rows}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContent(data, t, slideNum) {
+  const layout = resolveContentLayout(data, t);
+  if (layout === 'process') return renderContentProcess(data, t, slideNum);
+  if (layout === 'compare') return renderContentCompare(data, t, slideNum);
+  if (layout === 'split') return renderContentSplit(data, t, slideNum);
+  if (layout === 'card') return renderContentCard(data, t, slideNum);
+  if (layout === 'highlight') return renderContentHighlight(data, t, slideNum);
+  return renderContentClassic(data, t, slideNum);
+}
+
+function renderSlide(data, t, slideNum) {
+  const type = data.type || 'content';
+  if (type === 'title') return renderTitle(data, t, slideNum);
+  if (type === 'agenda') return renderAgenda(data, t, slideNum);
+  if (type === 'summary') return renderSummary(data, t, slideNum);
+  return renderContent(data, t, slideNum);
+}
+
+function renderThumb(data, idx) {
+  const type = data.type || 'content';
+  const layoutLabel = type === 'content' ? ` · ${CONTENT_LAYOUT_LABELS[resolveContentLayout(data, resolvedTheme)] || '클래식'}` : '';
+  return `<div class="thumb ${idx === cur ? 'active' : ''}" id="th-${idx}" onclick="goTo(${idx})">
+    <div class="thumb-body">
+      <div class="thumb-inner" style="transform:scale(0.178)">
+        ${renderSlide(data, resolvedTheme, idx + 1)}
+      </div>
+    </div>
+    <div class="thumb-label">${idx + 1} · ${TYPE_LABELS[type] || '내용 슬라이드'}${layoutLabel}</div>
+  </div>`;
+}
+
+function renderThumbs() {
+  document.getElementById('thumbs').innerHTML = slides.map((slide, index) => renderThumb(slide, index)).join('');
+}
+
+function renderCurrentSlide() {
+  if (!slides.length) return;
+  document.getElementById('slideCanvas').innerHTML = renderSlide(slides[cur], resolvedTheme, cur + 1);
+  document.getElementById('pageInfo').textContent = `${cur + 1} / ${slides.length}`;
+  document.getElementById('prevBtn').disabled = cur === 0;
+  document.getElementById('nextBtn').disabled = cur === slides.length - 1;
+  renderThumbs();
+  const active = document.getElementById(`th-${cur}`);
+  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function setEditorStatus(type, message) {
+  const box = document.getElementById('editorStatus');
+  if (!message) {
+    box.className = 'status';
+    box.textContent = '';
+    return;
+  }
+  box.className = `status ${type}`;
+  box.textContent = message;
+}
+
+function parseLines(value) {
+  return String(value || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
+function fillEditor() {
+  const slide = slides[cur] || {};
+  const type = slide.type || 'content';
+
+  document.getElementById('slideTypeChip').textContent = TYPE_LABELS[type] || '내용 슬라이드';
+  document.getElementById('titleInput').value = slide.title || '';
+  document.getElementById('subtitleInput').value = slide.subtitle || '';
+  document.getElementById('notesInput').value = slide.notes || '';
+
+  const subtitleField = document.getElementById('subtitleField');
+  const layoutField = document.getElementById('layoutField');
+  const sourcePagesField = document.getElementById('sourcePagesInput').parentElement;
+  const listField = document.getElementById('listField');
+  const listLabel = document.getElementById('listLabel');
+  const listHelp = document.getElementById('listHelp');
+  const listInput = document.getElementById('listInput');
+
+  subtitleField.style.display = (type === 'title' || type === 'content') ? 'flex' : 'none';
+  layoutField.style.display = type === 'content' ? 'flex' : 'none';
+  sourcePagesField.style.display = type === 'content' ? 'flex' : 'none';
+  document.getElementById('layoutSelect').value = type === 'content'
+    ? normalizeLayoutId(slide.layout || 'auto')
+    : 'auto';
+  document.getElementById('sourcePagesInput').value = type === 'content' ? (slide.source_pages || '') : '';
+
+  if (type === 'title') {
+    listField.style.display = 'none';
+    listInput.value = '';
+  } else if (type === 'agenda') {
+    listField.style.display = 'flex';
+    listLabel.textContent = '목차 항목';
+    listHelp.textContent = '한 줄마다 하나의 목차 항목으로 저장됩니다.';
+    listInput.value = (slide.items || []).join('\n');
+  } else if (type === 'summary') {
+    listField.style.display = 'flex';
+    listLabel.textContent = '요약 포인트';
+    listHelp.textContent = '한 줄마다 하나의 요약 포인트로 저장됩니다.';
+    listInput.value = (slide.points || []).join('\n');
+  } else {
+    listField.style.display = 'flex';
+    listLabel.textContent = '포인트';
+    listHelp.textContent = '한 줄마다 하나의 포인트로 저장됩니다.';
+    listInput.value = (slide.points || []).join('\n');
+  }
+}
+
+function captureEditorToSlides() {
+  if (!slides.length) return;
+  const current = { ...(slides[cur] || {}) };
+  const type = current.type || 'content';
+
+  current.title = document.getElementById('titleInput').value.trim();
+
+  const subtitle = document.getElementById('subtitleInput').value.trim();
+  if (type === 'title' || type === 'content') {
+    if (subtitle) current.subtitle = subtitle;
+    else delete current.subtitle;
+  } else {
+    delete current.subtitle;
+  }
+
+  if (type === 'agenda') {
+    current.items = parseLines(document.getElementById('listInput').value);
+    delete current.points;
+    delete current.layout;
+    delete current.source_pages;
+  } else if (type === 'content' || type === 'summary') {
+    current.points = parseLines(document.getElementById('listInput').value);
+    delete current.items;
+    if (type === 'content') {
+      current.layout = normalizeLayoutId(document.getElementById('layoutSelect').value || 'auto');
+      const sourcePages = document.getElementById('sourcePagesInput').value.trim();
+      if (sourcePages) current.source_pages = sourcePages;
+      else delete current.source_pages;
+    } else {
+      delete current.layout;
+      delete current.source_pages;
+    }
+  } else {
+    delete current.items;
+    delete current.points;
+    delete current.layout;
+    delete current.source_pages;
+  }
+
+  const notes = document.getElementById('notesInput').value.trim();
+  if (notes) current.notes = notes;
+  else delete current.notes;
+
+  slides[cur] = current;
+}
+
+function refreshCurrentEditor() {
+  renderCurrentSlide();
+  fillEditor();
+}
+
+function goTo(index) {
+  if (index < 0 || index >= slides.length) return;
+  if (slides.length) captureEditorToSlides();
+  cur = index;
+  renderCurrentSlide();
+  fillEditor();
+  setEditorStatus('', '');
+}
+
+function rescale() {
+  const vp = document.getElementById('viewport');
+  const wrap = document.getElementById('scalerWrap');
+  const canvas = document.getElementById('slideCanvas');
+  const availW = vp.clientWidth - 40;
+  const availH = vp.clientHeight - 40;
+  const scale = Math.min(availW / 960, availH / 540, 1);
+  canvas.style.transform = `scale(${scale})`;
+  canvas.style.transformOrigin = 'top left';
+  wrap.style.width = (960 * scale) + 'px';
+  wrap.style.height = (540 * scale) + 'px';
+}
+
+async function saveSlides() {
+  if (!slides.length) return;
+  captureEditorToSlides();
+  setEditorStatus('load', '수정 내용을 저장하고 PPT를 다시 생성하고 있습니다...');
+  document.getElementById('saveBtn').disabled = true;
+
+  try {
+    const response = await fetch(`/api/slides/${UID}/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slides,
+        design,
+        assets,
+        page_plan: pagePlan,
+        pdf_name: pdfName,
+        download_name: document.getElementById('downloadNameInput').value,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || '저장 실패');
+
+    fileName = UID;
+    if (data.download_name) {
+      document.getElementById('downloadNameInput').value = data.download_name;
+    }
+    renderCurrentSlide();
+    fillEditor();
+    setEditorStatus('ok', '저장이 완료되었습니다. 최신 내용으로 PPT가 다시 생성되었습니다.');
+  } catch (error) {
+    setEditorStatus('err', '저장 중 오류가 발생했습니다: ' + error.message);
+  } finally {
+    document.getElementById('saveBtn').disabled = false;
+  }
+}
+
+async function init() {
+  try {
+    const res = await fetch(`/api/slides/${UID}`);
+    if (!res.ok) throw new Error('not found');
+    const data = await res.json();
+
+    slides = data.slides || [];
+    design = normalizeDesign(data.design || (data.theme ? { preset: data.theme } : { preset: 'corporate' }));
+    resolvedTheme = resolveTheme(design);
+    pdfName = data.pdf_name || '';
+    fileName = UID;
+    assets = data.assets || [];
+    pagePlan = data.page_plan || {};
+
+    document.title = pdfName ? `${pdfName.replace('.pdf', '')} 미리보기` : '슬라이드 미리보기';
+    document.getElementById('tbTitle').textContent = pdfName ? pdfName.replace('.pdf', '') : '슬라이드 미리보기';
+    document.getElementById('tbBadge').textContent = `${slides.length}장 · ${resolvedTheme.preset_name} · ${CONTENT_LAYOUT_LABELS[normalizeLayoutId(design.content_layout)] || '자동 추천'}`;
+    document.getElementById('downloadNameInput').value = INITIAL_DOWNLOAD_NAME || data.download_name || defaultDownloadName(pdfName, fileName);
+
+    renderCurrentSlide();
+    fillEditor();
+    rescale();
+  } catch (_) {
+    document.getElementById('slideCanvas').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#6B7280;font-size:14px">슬라이드를 불러올 수 없습니다</div>';
+    document.getElementById('thumbs').innerHTML = '';
+    setEditorStatus('err', '슬라이드 데이터를 불러오지 못했습니다.');
+  }
+}
+
+document.getElementById('prevBtn').onclick = () => goTo(cur - 1);
+document.getElementById('nextBtn').onclick = () => goTo(cur + 1);
+document.getElementById('saveBtn').onclick = saveSlides;
+document.getElementById('refreshBtn').onclick = () => {
+  fillEditor();
+  setEditorStatus('', '');
+};
+document.getElementById('dlBtn').onclick = () => {
+  if (!fileName) return;
+  location.href = buildDownloadUrl(fileName, document.getElementById('downloadNameInput').value);
+};
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+    e.preventDefault();
+    goTo(cur + 1);
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    goTo(cur - 1);
+  }
+});
+
+window.addEventListener('resize', rescale);
+init();
+</script>
+</body>
+</html>

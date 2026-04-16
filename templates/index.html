@@ -1,0 +1,1797 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF → 강의 교안 PPT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F7F8FA;
+  --white:#FFFFFF;
+  --border:#E5E8EE;
+  --border2:#CDD2DC;
+  --text:#1A1E29;
+  --sub:#6B7280;
+  --hint:#9CA3AF;
+  --accent:#2563EB;
+  --accent-bg:#EFF6FF;
+  --green:#16A34A;
+  --green-bg:#F0FDF4;
+  --red:#DC2626;
+  --red-bg:#FEF2F2;
+  --card:#F4F6FB;
+  --shadow:0 8px 24px rgba(15,23,42,.04);
+  --r:10px;
+}
+html,body{min-height:100%;font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+.wrap{max-width:1040px;margin:0 auto;padding:40px 20px 80px}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;gap:12px}
+.logo{font-size:17px;font-weight:700;color:var(--text)}
+.logo span{color:var(--accent)}
+.tabs{display:flex;gap:2px;background:var(--border);border-radius:6px;padding:3px}
+.tab{padding:5px 16px;border-radius:4px;font-size:13px;font-weight:500;color:var(--sub);cursor:pointer;transition:all .15s;user-select:none}
+.tab.active{background:var(--white);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.page{display:none}
+.page.active{display:block}
+.card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:22px;box-shadow:var(--shadow)}
+.card+.card{margin-top:12px}
+.card-label{font-size:11px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px}
+.drop{border:1.5px dashed var(--border2);border-radius:var(--r);padding:34px 20px;text-align:center;cursor:pointer;transition:all .2s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-bg)}
+.drop.ok{border-color:var(--green);border-style:solid;background:var(--green-bg)}
+.di{font-size:30px;margin-bottom:8px}
+.dt{font-size:15px;font-weight:500;margin-bottom:3px}
+.ds{font-size:13px;color:var(--sub)}
+.df{margin-top:7px;font-size:13px;font-weight:500;color:var(--green);display:none}
+input[type=file]{display:none}
+.opts{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:end}
+.ol{font-size:12px;font-weight:500;color:var(--sub);margin-bottom:8px}
+.counter{display:inline-flex;align-items:center;border:1px solid var(--border2);border-radius:8px;overflow:hidden}
+.counter.disabled{opacity:.45}
+.cb{width:36px;height:36px;background:var(--bg);border:none;font-size:17px;color:var(--text);cursor:pointer;transition:background .15s;display:flex;align-items:center;justify-content:center}
+.cb:hover{background:var(--border)}
+.cv{width:52px;text-align:center;font-size:15px;font-weight:700}
+.auto-slide-row{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--sub)}
+.auto-slide-row input{width:15px;height:15px}
+.txt-input,.select-input{width:100%;padding:10px 12px;border:1px solid var(--border2);border-radius:8px;font-size:13px;font-family:inherit;color:var(--text);background:var(--white);outline:none;transition:border-color .15s}
+.txt-input:focus,.select-input:focus{border-color:var(--accent)}
+.txt-input::placeholder{color:var(--hint)}
+textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s;font-family:inherit}
+.btn-p{background:var(--accent);color:#fff}
+.btn-p:hover{background:#1D4ED8}
+.btn-p:disabled{background:var(--border2);color:var(--hint);cursor:not-allowed}
+.btn-g{background:transparent;color:var(--sub);border:1px solid var(--border2)}
+.btn-g:hover{color:var(--text);background:#FAFBFC}
+.btn-ok{background:var(--green);color:#fff}
+.btn-ok:hover{background:#15803D}
+.btn-full{width:100%;margin-top:12px}
+.st{display:none;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;font-size:13px;margin-top:10px}
+.st.load{background:var(--accent-bg);color:var(--accent);display:flex}
+.st.ok{background:var(--green-bg);color:var(--green);display:flex}
+.st.err{background:var(--red-bg);color:var(--red);display:flex}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sp{width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+.design-tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.design-tab{padding:8px 14px;border-radius:999px;border:1px solid var(--border2);background:var(--white);color:var(--sub);cursor:pointer;font-size:12px;font-weight:700;transition:all .15s}
+.design-tab.active{background:var(--accent-bg);border-color:#B6D0FF;color:var(--accent)}
+.design-panel{display:none}
+.design-panel.active{display:block}
+.preset-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.preset-card{border:1px solid var(--border);background:var(--white);border-radius:12px;padding:14px;cursor:pointer;text-align:left;transition:all .16s}
+.preset-card:hover{border-color:#BFD1F3;transform:translateY(-1px)}
+.preset-card.sel{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+.preset-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.preset-swatch{display:flex;align-items:center;gap:8px}
+.preset-swatch-main{width:28px;height:28px;border-radius:8px;border:1px solid rgba(0,0,0,.06)}
+.preset-swatch-dot{width:10px;height:10px;border-radius:99px;border:1px solid rgba(0,0,0,.06)}
+.preset-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:999px;background:var(--card);color:var(--sub)}
+.preset-title{font-size:13px;font-weight:700;margin-bottom:3px}
+.preset-desc{font-size:11px;color:var(--sub);line-height:1.5}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.field{display:flex;flex-direction:column;gap:7px}
+.field label{font-size:12px;font-weight:600;color:var(--sub)}
+.field small{font-size:11px;color:var(--hint)}
+.color-row{display:flex;gap:8px;align-items:center}
+.color-row .txt-input{flex:1}
+.color-picker{width:46px;height:42px;border:1px solid var(--border2);border-radius:8px;background:#fff;padding:4px;cursor:pointer}
+.color-reset{padding:0 12px;height:42px;border-radius:8px;border:1px solid var(--border2);background:#fff;color:var(--sub);cursor:pointer;font-size:12px;font-weight:600}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--card)}
+.toggle-wrap{display:flex;align-items:center;gap:10px}
+.switch{position:relative;display:inline-flex;width:46px;height:28px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;border-radius:999px;background:#D0D7E5;transition:.18s}
+.slider::before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 2px 4px rgba(0,0,0,.12)}
+.switch input:checked + .slider{background:var(--accent)}
+.switch input:checked + .slider::before{transform:translateX(18px)}
+.font-box{border:1px solid var(--border);border-radius:12px;background:var(--card);padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.font-box-meta{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.font-box-title{font-size:13px;font-weight:700}
+.font-box-desc{font-size:12px;color:var(--sub);line-height:1.55}
+.font-box-actions{display:flex;gap:8px;flex-wrap:wrap}
+.logo-box{border:1px solid var(--border);border-radius:12px;background:var(--card);padding:14px}
+.logo-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.logo-preview-wrap{margin-top:12px;display:flex;align-items:center;gap:12px}
+.logo-preview{display:none;max-width:120px;max-height:70px;border-radius:8px;background:#fff;border:1px solid var(--border);padding:6px}
+.logo-status{font-size:12px;color:var(--sub)}
+.layout-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.layout-card{border:1px solid var(--border);background:var(--white);border-radius:12px;padding:14px;cursor:pointer;transition:all .16s}
+.layout-card:hover{border-color:#BFD1F3;transform:translateY(-1px)}
+.layout-card.sel{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+.layout-preview{height:120px;border-radius:10px;background:#F8FAFC;border:1px solid #E6ECF5;padding:10px;display:flex;align-items:stretch;justify-content:center;margin-bottom:10px}
+.layout-title{font-size:13px;font-weight:700;margin-bottom:3px}
+.layout-desc{font-size:11px;color:var(--sub)}
+.pv-classic,.pv-split,.pv-card,.pv-highlight{width:100%;display:flex;gap:8px;position:relative}
+.mini-stack{display:flex;flex-direction:column;gap:6px;width:100%}
+.mini-head{height:18px;border-radius:6px;background:#1E3A5F}
+.mini-line{height:10px;border-radius:999px;background:#D8E4F6}
+.mini-line.short{width:70%}
+.pv-split-left{width:38%;border-radius:8px;background:#1E3A5F}
+.pv-split-right{flex:1;display:flex;flex-direction:column;gap:6px}
+.pv-split-divider{width:5px;border-radius:999px;background:#4A90D9}
+.pv-card-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;width:100%}
+.pv-card-box{border-radius:8px;background:#EBF2FA;height:34px;position:relative}
+.pv-card-box::before{content:"";position:absolute;left:0;right:0;top:0;height:5px;background:#4A90D9;border-radius:8px 8px 0 0}
+.pv-highlight-top{height:42px;border-radius:8px;background:#4A90D9}
+.pv-highlight-bottom{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.pv-highlight-box{height:28px;border-radius:8px;background:#EBF2FA}
+.pv-auto{width:100%;display:grid;grid-template-columns:1.1fr .9fr;gap:8px}
+.pv-auto-left{display:flex;flex-direction:column;gap:6px}
+.pv-auto-right{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.pv-auto-box{border-radius:8px;background:#EBF2FA;position:relative}
+.pv-auto-box.hero{height:46px;background:#4A90D9}
+.pv-auto-box.card{height:30px}
+.pv-process{width:100%;display:flex;align-items:center;gap:6px}
+.pv-process-step{flex:1;height:38px;border-radius:10px;background:#EBF2FA;position:relative}
+.pv-process-step::before{content:"";position:absolute;left:8px;right:8px;top:8px;height:5px;border-radius:999px;background:#4A90D9}
+.pv-process-arrow{width:16px;height:4px;border-radius:999px;background:#AFC7E8}
+.pv-compare{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pv-compare-col{border-radius:10px;background:#EBF2FA;padding:8px;display:flex;flex-direction:column;gap:6px}
+.pv-compare-bar{height:8px;border-radius:999px;background:#4A90D9}
+.pv-compare-line{height:6px;border-radius:999px;background:#D5E4F7}
+.design-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.design-meta{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.design-state{font-size:12px;font-weight:700}
+.design-state.applied{color:var(--green)}
+.design-state.pending{color:#B45309}
+.design-summary{font-size:12px;color:var(--sub);line-height:1.55}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.54);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal.open{display:flex}
+.modal-card{width:min(940px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--white);border:1px solid var(--border);border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.18);padding:22px}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.modal-title{font-size:18px;font-weight:700}
+.modal-sub{font-size:12px;color:var(--sub);margin-top:4px;line-height:1.6}
+.modal-close{width:36px;height:36px;border:none;border-radius:10px;background:var(--card);cursor:pointer;font-size:16px;color:var(--sub)}
+.modal-body{display:grid;grid-template-columns:320px 1fr;gap:18px}
+.font-modal-grid{display:grid;gap:14px}
+.font-inline{display:flex;align-items:center;gap:10px}
+.font-inline .txt-input{width:112px}
+.font-inline span{font-size:12px;color:var(--sub)}
+.font-preview-wrap{border:1px solid var(--border);border-radius:14px;background:#111827;padding:16px;display:flex;align-items:center;justify-content:center}
+.font-preview-stage{width:100%;max-width:560px;aspect-ratio:16/9;background:#fff;border-radius:4px;overflow:hidden;box-shadow:0 10px 24px rgba(15,23,42,.16);position:relative}
+.font-preview-footer{position:absolute;left:0;right:0;bottom:0;height:34px;display:flex;align-items:center;padding:0 18px;gap:8px}
+.font-preview-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
+.prev-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px}
+.prev-bar h2{font-size:15px;font-weight:700}
+.prev-meta{font-size:12px;color:var(--sub);margin-top:1px}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.sc{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px}
+.sc-r{display:flex;align-items:flex-start;gap:6px;margin-bottom:5px}
+.sc-n{font-size:10px;color:var(--hint);min-width:15px;padding-top:1px}
+.sc-t{font-size:12px;font-weight:500;flex:1;line-height:1.4}
+.bge{font-size:10px;padding:1px 6px;border-radius:99px;font-weight:600;flex-shrink:0}
+.bt{background:#DBEAFE;color:#1D4ED8}
+.ba{background:#D1FAE5;color:#065F46}
+.bc{background:var(--border);color:var(--sub)}
+.bs{background:#FEF9C3;color:#854D0E}
+.sc-p{font-size:11px;color:var(--sub);line-height:1.7}
+.sc-pi::before{content:"· "}
+.quality-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.quality-card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px}
+.quality-value{font-size:18px;font-weight:700;line-height:1}
+.quality-label{font-size:11px;color:var(--sub);margin-top:6px}
+.quality-note{font-size:12px;color:var(--sub);line-height:1.6;margin-bottom:16px}
+.warn-list{display:grid;gap:8px;margin-bottom:16px}
+.warn-item{font-size:12px;color:#9A3412;background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:10px 12px}
+.outline-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 14px}
+.outline-help{font-size:12px;color:var(--sub)}
+.outline-list{display:grid;gap:12px}
+.outline-item{border:1px solid var(--border);border-radius:12px;background:var(--white);padding:14px}
+.outline-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.outline-left{display:flex;gap:10px;min-width:0;flex:1}
+.outline-num{width:28px;height:28px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.outline-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.chip-soft{font-size:10px;font-weight:700;padding:3px 7px;border-radius:999px;background:var(--card);color:var(--sub)}
+.chip-kind{background:#EEF2FF;color:#4338CA}
+.chip-src{background:#ECFDF5;color:#166534}
+.chip-img{background:#FEF3C7;color:#92400E}
+.outline-actions{display:flex;gap:6px;flex-wrap:wrap}
+.btn-mini{height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--border2);background:#fff;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer}
+.btn-mini:hover{background:#FAFBFC;color:var(--text)}
+.mini-input-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px}
+.mini-points{min-height:94px}
+.summary-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.summary-head h3{font-size:14px;font-weight:700}
+.summary-sub{font-size:12px;color:var(--sub)}
+.done{text-align:center;padding:28px 16px}
+.done-i{font-size:40px;margin-bottom:10px}
+.done-t{font-size:19px;font-weight:700;margin-bottom:3px}
+.done-s{font-size:13px;color:var(--sub);margin-bottom:18px}
+.done-name{max-width:420px;margin:0 auto 18px;text-align:left}
+.done-name label{display:block;font-size:12px;font-weight:600;color:var(--sub);margin-bottom:7px}
+.done-name small{display:block;font-size:11px;color:var(--hint);margin-top:6px}
+.done-m{display:inline-flex;gap:20px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:12px 22px;margin-bottom:18px;flex-wrap:wrap;justify-content:center}
+.sv{font-size:17px;font-weight:700}
+.sl{font-size:11px;color:var(--sub);margin-top:1px}
+.done-b{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.he{text-align:center;color:var(--sub);padding:36px;font-size:14px}
+.hi{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border)}
+.hi:last-child{border-bottom:none}
+.hii{font-size:20px;flex-shrink:0}
+.hin{flex:1;min-width:0}
+.hin-t{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hin-m{font-size:11px;color:var(--sub);margin-top:2px;display:flex;gap:9px;flex-wrap:wrap}
+.ttag{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500}
+@media (max-width: 920px){
+  .preset-grid,.layout-grid,.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .modal-body{grid-template-columns:1fr}
+  .mini-input-grid{grid-template-columns:1fr}
+}
+@media (max-width: 640px){
+  .wrap{padding:24px 14px 56px}
+  .top,.prev-bar,.opts{flex-direction:column;align-items:stretch}
+  .tabs{align-self:flex-start}
+  .preset-grid,.layout-grid,.form-grid{grid-template-columns:1fr}
+  .color-row{flex-wrap:wrap}
+  .done-m{display:grid;grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div class="logo">PDF <span>→</span> 강의 교안 PPT</div>
+    <div class="tabs">
+      <div class="tab active" data-pg="generate">생성하기</div>
+      <div class="tab" data-pg="history">히스토리</div>
+    </div>
+  </div>
+
+  <div class="page active" id="page-generate">
+    <div id="s1">
+      <div class="card">
+        <div class="card-label">PDF 업로드</div>
+        <div class="drop" id="dz">
+          <input type="file" id="fi" accept=".pdf">
+          <div class="di" id="di">📄</div>
+          <div class="dt" id="dt">클릭하거나 파일을 드래그하세요</div>
+          <div class="ds">PDF 파일 · 최대 20MB</div>
+          <div class="df" id="df"></div>
+        </div>
+      </div>
+
+      <div class="card" id="oc" style="display:none">
+        <div class="card-label">슬라이드 옵션</div>
+        <div class="opts">
+          <div>
+            <div class="ol">콘텐츠 슬라이드 수</div>
+            <div class="counter">
+              <button class="cb" id="bm">−</button>
+              <span class="cv" id="cv">10</span>
+              <button class="cb" id="bp">+</button>
+            </div>
+            <div style="font-size:11px;color:var(--hint);margin-top:5px">5 ~ 50장</div>
+            <label class="auto-slide-row">
+              <input type="checkbox" id="autoSlideCount">
+              <span>장수 상관없이 제작 시작</span>
+            </label>
+          </div>
+          <div style="font-size:12px;color:var(--sub);max-width:320px">
+            PDF 분석은 그대로 진행되고, 아래 디자인 설정은 PPT 생성 단계에 반영됩니다.
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="dc" style="display:none">
+        <div class="card-label">Design Settings</div>
+        <div class="design-tabs">
+          <button class="design-tab active" data-design-tab="concept">A 컨셉</button>
+          <button class="design-tab" data-design-tab="brand">B 브랜드</button>
+          <button class="design-tab" data-design-tab="layout">C 레이아웃</button>
+        </div>
+
+        <div class="design-panel active" id="panel-concept">
+          <div class="preset-grid" id="presetGrid"></div>
+        </div>
+
+        <div class="design-panel" id="panel-brand">
+          <div class="form-grid">
+            <div class="field">
+              <label for="primaryHex">Primary Color</label>
+              <div class="color-row">
+                <input type="text" id="primaryHex" class="txt-input" placeholder="#1E3A5F">
+                <input type="color" id="primaryColor" class="color-picker" value="#1E3A5F">
+                <button type="button" class="color-reset" id="primaryReset">초기화</button>
+              </div>
+              <small>비워두면 선택한 프리셋의 기본 헤더 색을 사용합니다.</small>
+            </div>
+
+            <div class="field">
+              <label for="accentHex">Accent Color</label>
+              <div class="color-row">
+                <input type="text" id="accentHex" class="txt-input" placeholder="#4A90D9">
+                <input type="color" id="accentColor" class="color-picker" value="#4A90D9">
+                <button type="button" class="color-reset" id="accentReset">초기화</button>
+              </div>
+              <small>강조선, 포인트, 번호 박스에 공통 적용됩니다.</small>
+            </div>
+
+            <div class="field">
+              <label for="fontSelect">폰트</label>
+              <select id="fontSelect" class="select-input"></select>
+            </div>
+
+            <div class="field" style="grid-column:1 / -1">
+              <label>폰트 크기</label>
+              <div class="font-box">
+                <div class="font-box-meta">
+                  <div class="font-box-title">기본 타이틀 / 서브타이틀 / 바디글 크기</div>
+                  <div class="font-box-desc" id="fontSizeSummary">현재 기본값을 사용 중입니다.</div>
+                </div>
+                <div class="font-box-actions">
+                  <button type="button" class="btn btn-g" id="fontPreviewBtn">미리보기</button>
+                </div>
+              </div>
+              <small>비워두면 현재 기본 크기를 사용하고, 직접 입력하면 전체 슬라이드에 공통 적용됩니다.</small>
+            </div>
+
+            <div class="field">
+              <label for="footerInput">푸터 텍스트</label>
+              <input type="text" id="footerInput" class="txt-input" placeholder="예: 사내 교육 자료 · 2026">
+            </div>
+
+            <div class="field">
+              <label for="companyInput">회사명</label>
+              <input type="text" id="companyInput" class="txt-input" placeholder="예: OpenAI Korea">
+            </div>
+
+            <div class="field">
+              <label for="presenterInput">발표자 / 강사</label>
+              <input type="text" id="presenterInput" class="txt-input" placeholder="예: 홍길동">
+            </div>
+
+            <div class="field" style="grid-column:1 / -1">
+              <label>로고</label>
+              <div class="logo-box">
+                <input type="file" id="logoFile" accept=".png,.jpg,.jpeg,.gif,.webp">
+                <div class="logo-actions">
+                  <button type="button" class="btn btn-g" id="logoSelectBtn">파일 선택</button>
+                  <button type="button" class="btn btn-g" id="logoClearBtn">로고 제거</button>
+                  <span class="logo-status" id="logoStatus">선택한 이미지는 즉시 업로드되고 이후 PPT 생성에 재사용됩니다.</span>
+                </div>
+                <div class="logo-preview-wrap">
+                  <img id="logoPreview" class="logo-preview" alt="logo preview">
+                </div>
+              </div>
+            </div>
+
+            <div class="field" style="grid-column:1 / -1">
+              <label>푸터 영역 디자인</label>
+              <div class="toggle-row">
+                <div>
+                  <div style="font-size:13px;font-weight:600">푸터 바 영역 표시</div>
+                  <div style="font-size:11px;color:var(--sub)">하단 배경 바와 푸터 텍스트 디자인을 함께 적용합니다.</div>
+                </div>
+                <div class="toggle-wrap">
+                  <span style="font-size:12px;color:var(--sub)" id="footerEnabledText">ON</span>
+                  <label class="switch">
+                    <input type="checkbox" id="footerEnabledToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="field" style="grid-column:1 / -1">
+              <label>슬라이드 번호</label>
+              <div class="toggle-row">
+                <div>
+                  <div style="font-size:13px;font-weight:600">비-타이틀 슬라이드에 번호 표시</div>
+                  <div style="font-size:11px;color:var(--sub)">푸터 영역이 꺼져 있어도 번호만 단독으로 표시할 수 있습니다.</div>
+                </div>
+                <div class="toggle-wrap">
+                  <span style="font-size:12px;color:var(--sub)" id="slideNumberText">ON</span>
+                  <label class="switch">
+                    <input type="checkbox" id="slideNumberToggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="design-panel" id="panel-layout">
+          <div class="layout-grid" id="layoutGrid"></div>
+        </div>
+
+        <div class="design-actions">
+          <div class="design-meta">
+            <div class="design-state applied" id="designApplyState">기본 디자인이 적용되어 있습니다.</div>
+            <div class="design-summary" id="designSummary">현재 적용: 코퍼레이트 / 기본 브랜드 / 자동 추천 레이아웃</div>
+          </div>
+          <button type="button" class="btn btn-p" id="applyDesignBtn">디자인 설정 적용</button>
+        </div>
+      </div>
+
+      <div class="card" id="pc" style="display:none">
+        <div class="card-label">페이지 범위 / 사용할 파트 (선택사항)</div>
+        <input type="text" id="pr" class="txt-input" placeholder="예: 1-5, 8, 10-12 / 결론 부분 위주로 / 실험 결과 파트만 사용해줘">
+        <div style="font-size:11px;color:var(--hint);margin-top:6px">숫자 범위뿐 아니라 텍스트 요청도 해석합니다. 예: 3장부터 8장, 결론 부분, 실습 예제 파트</div>
+      </div>
+
+      <div class="card" id="scanCard" style="display:none">
+        <div class="card-label">스캔 PDF 보정 (선택사항)</div>
+        <div class="toggle-row">
+          <div>
+            <div style="font-size:13px;font-weight:600">텍스트 인식(OCR) 보정 사용</div>
+            <div style="font-size:11px;color:var(--sub)" id="scanSupportText">스캔본이나 이미지형 PDF일 때만 권장됩니다.</div>
+          </div>
+          <div class="toggle-wrap">
+            <span style="font-size:12px;color:var(--sub)" id="scanToggleText">OFF</span>
+            <label class="switch">
+              <input type="checkbox" id="enhanceScansToggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="epc" style="display:none">
+        <div class="card-label">추가 지시사항 (선택사항)</div>
+        <textarea id="ep" class="txt-input" placeholder="예: 초급자 대상으로 쉽게 설명해주세요 / 각 슬라이드에 실제 예시를 포함해주세요 / 핵심 용어는 영어로 표기해주세요"></textarea>
+      </div>
+
+      <div class="st" id="st1"></div>
+      <button class="btn btn-p btn-full" id="ab" disabled>분석 시작</button>
+    </div>
+
+    <div id="s2" style="display:none">
+      <div class="card">
+        <div class="prev-bar">
+          <div>
+            <h2>슬라이드 구성 확인</h2>
+            <div class="prev-meta" id="pm"></div>
+          </div>
+          <button class="btn btn-g" id="bk">← 다시 업로드</button>
+        </div>
+        <div class="quality-grid" id="qualityGrid"></div>
+        <div class="quality-note" id="qualityNote"></div>
+        <div class="warn-list" id="qualityWarnings"></div>
+        <div class="outline-toolbar">
+          <div class="outline-help">이 단계에서 제목, 포인트, 근거 페이지, 레이아웃, 순서를 먼저 다듬은 뒤 PPT를 생성할 수 있습니다.</div>
+          <button class="btn btn-g" id="reviewBtn">품질 점검 다시 적용</button>
+        </div>
+        <div class="outline-list" id="outlineEditor"></div>
+      </div>
+      <div class="card">
+        <div class="summary-head">
+          <div>
+            <h3>슬라이드 요약 미리보기</h3>
+            <div class="summary-sub">현재 편집 상태를 카드 형태로 빠르게 훑어볼 수 있습니다.</div>
+          </div>
+        </div>
+        <div class="sgrid" id="sg"></div>
+      </div>
+      <div class="st" id="st2"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p" id="gb">PPT 생성하기</button>
+      </div>
+    </div>
+
+    <div id="s3" style="display:none">
+      <div class="card">
+        <div class="done">
+          <div class="done-i">✅</div>
+          <div class="done-t">PPT 생성 완료!</div>
+          <div class="done-s" id="dn"></div>
+          <div class="done-name">
+            <label for="downloadNameInput">다운로드 파일명</label>
+            <input type="text" id="downloadNameInput" class="txt-input" placeholder="예: 1주차_강의교안">
+            <small>원하는 이름으로 다운로드되며, 미리보기에서도 같은 이름이 이어집니다.</small>
+          </div>
+          <div class="done-m">
+            <div><div class="sv" id="ds">—</div><div class="sl">슬라이드</div></div>
+            <div><div class="sv" id="dth">—</div><div class="sl">프리셋</div></div>
+            <div><div class="sv">outputs/</div><div class="sl">로컬 저장</div></div>
+          </div>
+          <div class="done-b">
+            <button class="btn btn-ok" id="dlb">⬇ 다운로드</button>
+            <button class="btn btn-p" id="pvb">👁 슬라이드 미리보기</button>
+            <button class="btn btn-g" id="rb">새 파일 만들기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="page-history">
+    <div class="card" id="hc"><div class="he">불러오는 중...</div></div>
+  </div>
+</div>
+
+<div class="modal" id="fontPreviewModal" aria-hidden="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title">폰트 크기 설정 미리보기</div>
+        <div class="modal-sub">타이틀, 서브타이틀, 바디글 크기를 직접 입력해 보고 실제 PPT에 가까운 크기로 확인할 수 있습니다.</div>
+      </div>
+      <button type="button" class="modal-close" id="fontModalCloseBtn">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="font-modal-grid">
+        <div class="field">
+          <label for="fontTitleSizeInput">타이틀 크기</label>
+          <div class="font-inline">
+            <input type="number" id="fontTitleSizeInput" class="txt-input" min="20" max="56" placeholder="기본값">
+            <span>pt</span>
+          </div>
+          <small>일반 슬라이드 제목과 요약 제목에 반영됩니다.</small>
+        </div>
+
+        <div class="field">
+          <label for="fontSubtitleSizeInput">서브타이틀 크기</label>
+          <div class="font-inline">
+            <input type="number" id="fontSubtitleSizeInput" class="txt-input" min="12" max="36" placeholder="기본값">
+            <span>pt</span>
+          </div>
+          <small>표지 부제와 보조 문구에 사용됩니다.</small>
+        </div>
+
+        <div class="field">
+          <label for="fontBodySizeInput">바디글 크기</label>
+          <div class="font-inline">
+            <input type="number" id="fontBodySizeInput" class="txt-input" min="12" max="28" placeholder="기본값">
+            <span>pt</span>
+          </div>
+          <small>목차, 본문 포인트, 요약 문장에 공통 적용됩니다.</small>
+        </div>
+      </div>
+
+      <div class="font-preview-wrap">
+        <div class="font-preview-stage" id="fontPreviewStage"></div>
+      </div>
+    </div>
+
+    <div class="font-preview-actions">
+      <button type="button" class="btn btn-g" id="fontResetBtn">기본값으로 되돌리기</button>
+      <button type="button" class="btn btn-p" id="fontModalDoneBtn">확인</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const LOCAL_PRESETS = [
+  {id:'corporate',name:'코퍼레이트',desc:'격식 있는 기업 강의용. 안정적이고 신뢰감 있는 구성.',swatch:{header:'#1E3A5F',accent:'#4A90D9',bg:'#FFFFFF'},header_style:'full',bullet_style:'circle'},
+  {id:'startup',name:'스타트업',desc:'대담하고 현대적인 스타트업 피치 스타일.',swatch:{header:'#0F172A',accent:'#6C63FF',bg:'#FAFAFD'},header_style:'bottom_line',bullet_style:'square'},
+  {id:'academic',name:'아카데믹',desc:'학술/교육 자료. 정보 밀도 높고 깔끔한 레이아웃.',swatch:{header:'#2C3E50',accent:'#E74C3C',bg:'#FFFFFF'},header_style:'left_bar',bullet_style:'dash'},
+  {id:'creative',name:'크리에이티브',desc:'디자인/마케팅 분야. 생동감 있고 개성 강한 스타일.',swatch:{header:'#FF6B6B',accent:'#FFE66D',bg:'#FFFFFF'},header_style:'full',bullet_style:'number'},
+  {id:'terra',name:'테라코타',desc:'따뜻하고 자연스러운 분위기. 인문/예술 강의에 적합.',swatch:{header:'#7A3B2E',accent:'#C86B4A',bg:'#FFFBF7'},header_style:'full',bullet_style:'circle'},
+  {id:'mono',name:'모노 미니멀',desc:'흑백 모노톤. 텍스트 중심의 미니멀 디자인.',swatch:{header:'#181818',accent:'#585858',bg:'#FFFFFF'},header_style:'bottom_line',bullet_style:'dash'},
+  {id:'forest',name:'포레스트',desc:'자연/환경/웰니스. 차분하고 신뢰감 있는 초록 계열.',swatch:{header:'#1C402E',accent:'#2E7D52',bg:'#F7FCF8'},header_style:'full',bullet_style:'circle'},
+  {id:'pastel',name:'소프트 파스텔',desc:'부드럽고 친근한 분위기. 워크숍이나 교육에 어울립니다.',swatch:{header:'#7E57C2',accent:'#F06AA1',bg:'#FFFFFF'},header_style:'left_bar',bullet_style:'circle'}
+];
+
+const LOCAL_FONTS = [
+  {id:'Malgun Gothic',label:'맑은 고딕'},
+  {id:'NanumGothic',label:'나눔고딕'},
+  {id:'NanumBarunGothic',label:'나눔바른고딕'},
+  {id:'NanumMyeongjo',label:'나눔명조'},
+  {id:'Pretendard',label:'프리텐다드'},
+  {id:'Apple SD Gothic Neo',label:'애플 SD 고딕'}
+];
+
+const LEGACY_THEME_LABELS = {
+  navy: '네이비 클래식',
+  terra: '테라코타',
+  mono: '모노 미니멀',
+  forest: '포레스트',
+};
+
+const LAYOUT_OPTIONS = [
+  {id:'auto',name:'자동 추천',desc:'슬라이드 내용에 맞춰 페이지별로 레이아웃을 자동 선택',preview:'auto'},
+  {id:'classic',name:'클래식',desc:'기본 헤더 + 세로 리스트',preview:'classic'},
+  {id:'split',name:'분할',desc:'좌측 타이틀 컬럼 + 우측 본문',preview:'split'},
+  {id:'card',name:'카드',desc:'카드형 포인트 3열 배치',preview:'card'},
+  {id:'highlight',name:'하이라이트',desc:'첫 포인트 강조 + 나머지 요약',preview:'highlight'},
+  {id:'process',name:'프로세스',desc:'순서형 단계 설명에 적합한 흐름형 배치',preview:'process'},
+  {id:'compare',name:'비교',desc:'두 관점이나 전후 차이를 나눠서 전달',preview:'compare'}
+];
+const DEFAULT_TITLE_FONT_SIZE = 32;
+const DEFAULT_SUBTITLE_FONT_SIZE = 18;
+const DEFAULT_BODY_FONT_SIZE = 18;
+const CONTENT_KIND_LABELS = {
+  process: '프로세스형',
+  compare: '비교형',
+  case: '사례형',
+  data: '데이터형',
+  explain: '설명형',
+};
+
+function createDefaultDesign() {
+  return {
+    preset: 'corporate',
+    primary_color: null,
+    accent_color: null,
+    font_name: 'Malgun Gothic',
+    title_font_size: null,
+    subtitle_font_size: null,
+    body_font_size: null,
+    company_name: '',
+    presenter_name: '',
+    logo_uid: null,
+    footer_text: '',
+    footer_enabled: true,
+    slide_number: true,
+    content_layout: 'auto',
+  };
+}
+
+function createInitialState() {
+  const design = createDefaultDesign();
+  return {
+    file: null,
+    cnt: 10,
+    slides: null,
+    outline: [],
+    quality: null,
+    page_plan: null,
+    out: null,
+    preview_uid: null,
+    download_name: '',
+    auto_slide_count: false,
+    enhance_scans: false,
+    ocr_available: false,
+    ocr_used: false,
+    ocr_note: '',
+    assets: [],
+    design,
+    designDraft: cloneDesign(design),
+  };
+}
+
+let S = createInitialState();
+let presetMeta = LOCAL_PRESETS.slice();
+let fontMeta = LOCAL_FONTS.slice();
+
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escAttr(s) {
+  return esc(s).replace(/"/g, '&quot;');
+}
+
+function parseLines(value) {
+  return String(value || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
+function setSt(id, type, msg) {
+  const el = $(id);
+  el.className = 'st ' + type;
+  el.innerHTML = (type === 'load' ? '<div class="sp"></div>' : '') + `<span>${esc(msg)}</span>`;
+  el.style.display = 'flex';
+}
+
+function hideSt(id) {
+  $(id).style.display = 'none';
+}
+
+function presetLabel(id) {
+  const found = presetMeta.find(item => item.id === id);
+  return found ? found.name : (LEGACY_THEME_LABELS[id] || id || '코퍼레이트');
+}
+
+function layoutLabel(id) {
+  const found = LAYOUT_OPTIONS.find(item => item.id === id);
+  return found ? found.name : '자동 추천';
+}
+
+function cloneDesign(value) {
+  return JSON.parse(JSON.stringify(value || createDefaultDesign()));
+}
+
+function normalizeDesignState(value) {
+  const design = { ...createDefaultDesign(), ...(value || {}) };
+  if (!LAYOUT_OPTIONS.some(option => option.id === design.content_layout)) {
+    design.content_layout = 'auto';
+  }
+  design.title_font_size = coerceFontSize(design.title_font_size, null, 20, 56);
+  design.subtitle_font_size = coerceFontSize(design.subtitle_font_size, null, 12, 36);
+  design.body_font_size = coerceFontSize(design.body_font_size, null, 12, 28);
+  design.footer_enabled = design.footer_enabled !== false;
+  design.slide_number = design.slide_number !== false;
+  return design;
+}
+
+function serializeDesign(value) {
+  return JSON.stringify(normalizeDesignState(value));
+}
+
+function isDesignDirty() {
+  return serializeDesign(S.design) !== serializeDesign(S.designDraft);
+}
+
+function coerceFontSize(value, fallback, min, max) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return fallback;
+  const parsed = parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function effectiveFontSizes(design) {
+  return {
+    title: coerceFontSize(design.title_font_size, DEFAULT_TITLE_FONT_SIZE, 20, 56),
+    subtitle: coerceFontSize(design.subtitle_font_size, DEFAULT_SUBTITLE_FONT_SIZE, 12, 36),
+    body: coerceFontSize(design.body_font_size, DEFAULT_BODY_FONT_SIZE, 12, 28),
+  };
+}
+
+function fontSummaryText(design) {
+  const sizes = effectiveFontSizes(design);
+  const mode = (design.title_font_size || design.subtitle_font_size || design.body_font_size) ? '직접 설정' : '기본값';
+  return `${mode} · 타이틀 ${sizes.title}pt / 서브타이틀 ${sizes.subtitle}pt / 바디글 ${sizes.body}pt`;
+}
+
+function appliedDesignSummary() {
+  const brandLabel = (S.design.primary_color || S.design.accent_color || S.design.company_name || S.design.presenter_name || S.design.footer_text || S.design.logo_uid)
+    ? '브랜드 커스텀 적용'
+    : '기본 브랜드';
+  const footerLabel = S.design.footer_enabled ? '푸터 ON' : '푸터 OFF';
+  return `현재 적용: ${presetLabel(S.design.preset)} / ${brandLabel} / ${layoutLabel(S.design.content_layout)} / ${fontSummaryText(S.design)} / ${footerLabel}`;
+}
+
+function refreshDesignApplyState() {
+  const stateEl = $('designApplyState');
+  const summaryEl = $('designSummary');
+  const dirty = isDesignDirty();
+
+  summaryEl.textContent = dirty
+    ? `적용 예정: ${presetLabel(S.designDraft.preset)} / ${layoutLabel(S.designDraft.content_layout)} / ${fontSummaryText(S.designDraft)} / ${S.designDraft.footer_enabled ? '푸터 ON' : '푸터 OFF'}`
+    : appliedDesignSummary();
+
+  stateEl.className = 'design-state ' + (dirty ? 'pending' : 'applied');
+  stateEl.textContent = dirty
+    ? '디자인 변경사항이 있습니다. 적용 버튼을 눌러 반영해 주세요.'
+    : '현재 디자인이 제작용 설정으로 적용되어 있습니다.';
+}
+
+function applyDesignSettings() {
+  S.design = normalizeDesignState(cloneDesign(S.designDraft));
+  S.designDraft = cloneDesign(S.design);
+  syncDesignInputs();
+  refreshDesignApplyState();
+}
+
+function normalizeHex(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+  return /^#[0-9A-Fa-f]{6}$/.test(withHash) ? withHash.toUpperCase() : null;
+}
+
+function defaultDownloadName(fileName) {
+  const base = String(fileName || '강의교안').replace(/\.pdf$/i, '').trim() || '강의교안';
+  return `${base}_강의교안.pptx`;
+}
+
+function buildDownloadUrl(uid, downloadName) {
+  const params = new URLSearchParams();
+  if (String(downloadName || '').trim()) {
+    params.set('name', downloadName.trim());
+  }
+  const qs = params.toString();
+  return '/download/' + encodeURIComponent(uid) + (qs ? `?${qs}` : '');
+}
+
+function updateSlideCountUI() {
+  const auto = S.auto_slide_count;
+  $('cv').textContent = auto ? 'AUTO' : String(S.cnt);
+  $('bm').disabled = auto;
+  $('bp').disabled = auto;
+  $('bm').style.cursor = auto ? 'not-allowed' : 'pointer';
+  $('bp').style.cursor = auto ? 'not-allowed' : 'pointer';
+  document.querySelector('.counter').classList.toggle('disabled', auto);
+  $('autoSlideCount').checked = auto;
+}
+
+function syncScanControls() {
+  const toggle = $('enhanceScansToggle');
+  const available = !!S.ocr_available;
+  if (!available) S.enhance_scans = false;
+  toggle.checked = available ? S.enhance_scans : false;
+  toggle.disabled = !available;
+  $('scanToggleText').textContent = toggle.checked ? 'ON' : 'OFF';
+  $('scanSupportText').textContent = available
+    ? '스캔본이나 이미지형 PDF일 때 OCR 보정 후 분석합니다.'
+    : '현재 서버에는 OCRmyPDF/Tesseract가 없어 스캔 PDF 보정을 사용할 수 없습니다.';
+}
+
+function renderPresetGrid() {
+  $('presetGrid').innerHTML = presetMeta.map(preset => `
+    <button type="button" class="preset-card ${S.designDraft.preset === preset.id ? 'sel' : ''}" data-preset-id="${preset.id}">
+      <div class="preset-card-head">
+        <div class="preset-swatch">
+          <div class="preset-swatch-main" style="background:${preset.swatch.header}"></div>
+          <div class="preset-swatch-dot" style="background:${preset.swatch.accent}"></div>
+        </div>
+        <span class="preset-badge">${preset.header_style}</span>
+      </div>
+      <div class="preset-title">${esc(preset.name)}</div>
+      <div class="preset-desc">${esc(preset.desc)}</div>
+    </button>
+  `).join('');
+
+  document.querySelectorAll('[data-preset-id]').forEach(button => {
+    button.addEventListener('click', () => {
+      S.designDraft.preset = button.dataset.presetId;
+      renderPresetGrid();
+      renderFontPreviewModal();
+      refreshDesignApplyState();
+    });
+  });
+}
+
+function renderLayoutPreview(type) {
+  if (type === 'auto') {
+    return `<div class="pv-auto">
+      <div class="pv-auto-left">
+        <div class="mini-head"></div>
+        <div class="pv-auto-box hero"></div>
+      </div>
+      <div class="pv-auto-right">
+        <div class="pv-auto-box card"></div>
+        <div class="pv-auto-box card"></div>
+        <div class="pv-auto-box card"></div>
+        <div class="pv-auto-box card"></div>
+      </div>
+    </div>`;
+  }
+
+  if (type === 'split') {
+    return `<div class="pv-split">
+      <div class="pv-split-left"></div>
+      <div class="pv-split-divider"></div>
+      <div class="pv-split-right">
+        <div class="mini-line"></div>
+        <div class="mini-line"></div>
+        <div class="mini-line short"></div>
+        <div class="mini-line"></div>
+      </div>
+    </div>`;
+  }
+
+  if (type === 'card') {
+    return `<div class="pv-card-grid">
+      <div class="pv-card-box"></div>
+      <div class="pv-card-box"></div>
+      <div class="pv-card-box"></div>
+      <div class="pv-card-box"></div>
+      <div class="pv-card-box"></div>
+    </div>`;
+  }
+
+  if (type === 'highlight') {
+    return `<div class="mini-stack" style="justify-content:space-between">
+      <div class="pv-highlight-top"></div>
+      <div class="pv-highlight-bottom">
+        <div class="pv-highlight-box"></div>
+        <div class="pv-highlight-box"></div>
+        <div class="pv-highlight-box"></div>
+      </div>
+    </div>`;
+  }
+
+  if (type === 'process') {
+    return `<div class="pv-process">
+      <div class="pv-process-step"></div>
+      <div class="pv-process-arrow"></div>
+      <div class="pv-process-step"></div>
+      <div class="pv-process-arrow"></div>
+      <div class="pv-process-step"></div>
+    </div>`;
+  }
+
+  if (type === 'compare') {
+    return `<div class="pv-compare">
+      <div class="pv-compare-col">
+        <div class="pv-compare-bar"></div>
+        <div class="pv-compare-line"></div>
+        <div class="pv-compare-line"></div>
+      </div>
+      <div class="pv-compare-col">
+        <div class="pv-compare-bar"></div>
+        <div class="pv-compare-line"></div>
+        <div class="pv-compare-line"></div>
+      </div>
+    </div>`;
+  }
+
+  return `<div class="pv-classic">
+    <div class="mini-stack">
+      <div class="mini-head"></div>
+      <div class="mini-line"></div>
+      <div class="mini-line"></div>
+      <div class="mini-line short"></div>
+      <div class="mini-line"></div>
+    </div>
+  </div>`;
+}
+
+function renderLayoutGrid() {
+  $('layoutGrid').innerHTML = LAYOUT_OPTIONS.map(layout => `
+    <button type="button" class="layout-card ${S.designDraft.content_layout === layout.id ? 'sel' : ''}" data-layout-id="${layout.id}">
+      <div class="layout-preview">${renderLayoutPreview(layout.preview)}</div>
+      <div class="layout-title">${esc(layout.name)}</div>
+      <div class="layout-desc">${esc(layout.desc)}</div>
+    </button>
+  `).join('');
+
+  document.querySelectorAll('[data-layout-id]').forEach(button => {
+    button.addEventListener('click', () => {
+      S.designDraft.content_layout = button.dataset.layoutId;
+      renderLayoutGrid();
+      refreshDesignApplyState();
+    });
+  });
+}
+
+function populateFonts() {
+  const select = $('fontSelect');
+  select.innerHTML = fontMeta.map(font => `<option value="${esc(font.id)}">${esc(font.label)}</option>`).join('');
+  select.value = S.designDraft.font_name;
+}
+
+function syncFontSummary() {
+  $('fontSizeSummary').textContent = fontSummaryText(S.designDraft);
+}
+
+function previewPreset(design) {
+  return presetMeta.find(item => item.id === design.preset) || LOCAL_PRESETS.find(item => item.id === design.preset) || LOCAL_PRESETS[0];
+}
+
+function syncFontModalInputs() {
+  $('fontTitleSizeInput').value = S.designDraft.title_font_size ?? '';
+  $('fontSubtitleSizeInput').value = S.designDraft.subtitle_font_size ?? '';
+  $('fontBodySizeInput').value = S.designDraft.body_font_size ?? '';
+}
+
+function renderFontPreviewModal() {
+  const preset = previewPreset(S.designDraft);
+  const sizes = effectiveFontSizes(S.designDraft);
+  const headerColor = S.designDraft.primary_color || preset.swatch.header;
+  const accentColor = S.designDraft.accent_color || preset.swatch.accent;
+  const bgColor = preset.swatch.bg || '#FFFFFF';
+  const footerVisible = S.designDraft.footer_enabled !== false;
+  const pageNumberVisible = S.designDraft.slide_number !== false;
+  const footerSize = Math.max(sizes.body - 8, 10);
+
+  $('fontPreviewStage').innerHTML = `
+    <div style="position:relative;width:100%;height:100%;background:${bgColor};font-family:'${esc(S.designDraft.font_name || 'Malgun Gothic')}','Noto Sans KR',sans-serif;overflow:hidden">
+      <div style="position:absolute;left:0;right:0;top:0;height:92px;background:${headerColor}"></div>
+      <div style="position:absolute;left:0;right:0;top:92px;height:5px;background:${accentColor}"></div>
+      <div style="position:absolute;left:34px;right:34px;top:22px;color:#FFFFFF;font-size:${sizes.title}px;font-weight:700;line-height:1.3">샘플 슬라이드 제목</div>
+      <div style="position:absolute;left:36px;right:36px;top:126px;color:${accentColor};font-size:${sizes.subtitle}px;font-weight:600;line-height:1.4">서브타이틀이 이렇게 보입니다</div>
+      <div style="position:absolute;left:36px;right:36px;top:182px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="width:14px;height:14px;border-radius:999px;background:${accentColor};margin-top:8px;flex-shrink:0"></div>
+          <div style="color:#1A1E29;font-size:${sizes.body}px;line-height:1.55">학생들이 뒤에서도 읽기 쉬운 본문 크기인지 바로 확인할 수 있습니다.</div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="width:14px;height:14px;border-radius:999px;background:${accentColor};margin-top:8px;flex-shrink:0"></div>
+          <div style="color:#1A1E29;font-size:${sizes.body}px;line-height:1.55">모달 안에서 값을 바꾸면 이 미리보기도 즉시 함께 갱신됩니다.</div>
+        </div>
+      </div>
+      ${footerVisible ? `<div class="font-preview-footer" style="background:#EFF4FB">
+        <div style="flex:1;font-size:${footerSize}px;color:${accentColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(S.designDraft.footer_text || '푸터 텍스트 미리보기')}</div>
+        ${pageNumberVisible ? `<div style="font-size:${footerSize}px;color:#1A1E29">12</div>` : ''}
+      </div>` : pageNumberVisible ? `<div style="position:absolute;right:18px;bottom:10px;font-size:${footerSize}px;color:#1A1E29">12</div>` : ''}
+    </div>
+  `;
+}
+
+function openFontPreviewModal() {
+  syncFontModalInputs();
+  renderFontPreviewModal();
+  $('fontPreviewModal').classList.add('open');
+  $('fontPreviewModal').setAttribute('aria-hidden', 'false');
+}
+
+function closeFontPreviewModal() {
+  $('fontPreviewModal').classList.remove('open');
+  $('fontPreviewModal').setAttribute('aria-hidden', 'true');
+}
+
+function syncDesignInputs() {
+  renderPresetGrid();
+  renderLayoutGrid();
+  populateFonts();
+  syncFontSummary();
+
+  $('primaryHex').value = S.designDraft.primary_color || '';
+  $('primaryColor').value = S.designDraft.primary_color || '#1E3A5F';
+  $('accentHex').value = S.designDraft.accent_color || '';
+  $('accentColor').value = S.designDraft.accent_color || '#4A90D9';
+  $('companyInput').value = S.designDraft.company_name;
+  $('presenterInput').value = S.designDraft.presenter_name;
+  $('footerInput').value = S.designDraft.footer_text;
+  $('footerEnabledToggle').checked = S.designDraft.footer_enabled !== false;
+  $('footerEnabledText').textContent = $('footerEnabledToggle').checked ? 'ON' : 'OFF';
+  $('slideNumberToggle').checked = S.designDraft.slide_number !== false;
+  $('slideNumberText').textContent = $('slideNumberToggle').checked ? 'ON' : 'OFF';
+
+  if (fontMeta.some(font => font.id === S.designDraft.font_name)) {
+    $('fontSelect').value = S.designDraft.font_name;
+  }
+
+  if (!S.designDraft.logo_uid) {
+    $('logoPreview').style.display = 'none';
+    $('logoPreview').removeAttribute('src');
+    $('logoStatus').textContent = '선택한 이미지는 즉시 업로드되고 이후 PPT 생성에 재사용됩니다.';
+  } else {
+    $('logoPreview').src = '/api/logo/' + encodeURIComponent(S.designDraft.logo_uid);
+    $('logoPreview').style.display = 'block';
+    $('logoStatus').textContent = '로고가 준비되었습니다. 적용 버튼을 누르면 제작에 반영됩니다.';
+  }
+
+  syncFontModalInputs();
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+}
+
+async function ensureDesignMeta() {
+  try {
+    const [presetRes, fontRes] = await Promise.all([
+      fetch('/api/presets'),
+      fetch('/api/fonts'),
+    ]);
+
+    if (presetRes.ok) {
+      const presetData = await presetRes.json();
+      if (Array.isArray(presetData) && presetData.length) presetMeta = presetData;
+    }
+
+    if (fontRes.ok) {
+      const fontData = await fontRes.json();
+      if (Array.isArray(fontData) && fontData.length) fontMeta = fontData;
+    }
+  } catch (_) {
+    presetMeta = LOCAL_PRESETS.slice();
+    fontMeta = LOCAL_FONTS.slice();
+  }
+
+  syncDesignInputs();
+}
+
+async function ensureCapabilities() {
+  try {
+    const response = await fetch('/api/capabilities');
+    if (!response.ok) throw new Error('capabilities');
+    const data = await response.json();
+    S.ocr_available = !!data.ocr_available;
+  } catch (_) {
+    S.ocr_available = false;
+  }
+  syncScanControls();
+}
+
+function showDesignCards() {
+  $('oc').style.display = 'block';
+  $('dc').style.display = 'block';
+  $('pc').style.display = 'block';
+  $('scanCard').style.display = 'block';
+  $('epc').style.display = 'block';
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab,.page').forEach(node => node.classList.remove('active'));
+    tab.classList.add('active');
+    $('page-' + tab.dataset.pg).classList.add('active');
+    if (tab.dataset.pg === 'history') loadH();
+  });
+});
+
+document.querySelectorAll('[data-design-tab]').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('[data-design-tab]').forEach(node => node.classList.remove('active'));
+    document.querySelectorAll('.design-panel').forEach(node => node.classList.remove('active'));
+    button.classList.add('active');
+    $('panel-' + button.dataset.designTab).classList.add('active');
+  });
+});
+
+const dz = $('dz');
+const fi = $('fi');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') setFile(file);
+  else setSt('st1', 'err', 'PDF 파일만 가능합니다');
+});
+fi.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+
+function setFile(file) {
+  S.file = file;
+  S.download_name = defaultDownloadName(file.name);
+  $('di').textContent = '✅';
+  $('dt').textContent = file.name;
+  $('df').style.display = 'block';
+  $('df').textContent = (file.size / 1024).toFixed(0) + ' KB';
+  dz.classList.add('ok');
+  showDesignCards();
+  syncScanControls();
+  $('ab').disabled = false;
+  hideSt('st1');
+  $('downloadNameInput').value = S.download_name;
+  ensureDesignMeta();
+}
+
+$('bm').onclick = () => { if (S.cnt > 5) { S.cnt -= 1; $('cv').textContent = S.cnt; } };
+$('bp').onclick = () => { if (S.cnt < 50) { S.cnt += 1; $('cv').textContent = S.cnt; } };
+$('autoSlideCount').addEventListener('change', e => {
+  S.auto_slide_count = e.target.checked;
+  updateSlideCountUI();
+});
+$('enhanceScansToggle').addEventListener('change', e => {
+  S.enhance_scans = e.target.checked;
+  $('scanToggleText').textContent = e.target.checked ? 'ON' : 'OFF';
+});
+
+function bindColorControl(hexId, colorId, resetId, key, fallback) {
+  const hexInput = $(hexId);
+  const colorInput = $(colorId);
+  const resetButton = $(resetId);
+
+  hexInput.addEventListener('input', () => {
+    const normalized = normalizeHex(hexInput.value);
+    if (normalized) {
+      hexInput.value = normalized;
+      colorInput.value = normalized;
+      S.designDraft[key] = normalized;
+    } else if (!hexInput.value.trim()) {
+      S.designDraft[key] = null;
+    }
+    renderFontPreviewModal();
+    refreshDesignApplyState();
+  });
+
+  colorInput.addEventListener('input', () => {
+    const normalized = normalizeHex(colorInput.value) || fallback;
+    colorInput.value = normalized;
+    hexInput.value = normalized;
+    S.designDraft[key] = normalized;
+    renderFontPreviewModal();
+    refreshDesignApplyState();
+  });
+
+  resetButton.addEventListener('click', () => {
+    S.designDraft[key] = null;
+    hexInput.value = '';
+    colorInput.value = fallback;
+    renderFontPreviewModal();
+    refreshDesignApplyState();
+  });
+}
+
+bindColorControl('primaryHex', 'primaryColor', 'primaryReset', 'primary_color', '#1E3A5F');
+bindColorControl('accentHex', 'accentColor', 'accentReset', 'accent_color', '#4A90D9');
+
+$('fontSelect').addEventListener('change', e => {
+  S.designDraft.font_name = e.target.value;
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('fontPreviewBtn').addEventListener('click', openFontPreviewModal);
+$('fontModalCloseBtn').addEventListener('click', closeFontPreviewModal);
+$('fontModalDoneBtn').addEventListener('click', closeFontPreviewModal);
+$('fontPreviewModal').addEventListener('click', e => {
+  if (e.target.id === 'fontPreviewModal') closeFontPreviewModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('fontPreviewModal').classList.contains('open')) {
+    closeFontPreviewModal();
+  }
+});
+$('fontTitleSizeInput').addEventListener('input', e => {
+  S.designDraft.title_font_size = coerceFontSize(e.target.value, null, 20, 56);
+  syncFontSummary();
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('fontSubtitleSizeInput').addEventListener('input', e => {
+  S.designDraft.subtitle_font_size = coerceFontSize(e.target.value, null, 12, 36);
+  syncFontSummary();
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('fontBodySizeInput').addEventListener('input', e => {
+  S.designDraft.body_font_size = coerceFontSize(e.target.value, null, 12, 28);
+  syncFontSummary();
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('fontResetBtn').addEventListener('click', () => {
+  S.designDraft.title_font_size = null;
+  S.designDraft.subtitle_font_size = null;
+  S.designDraft.body_font_size = null;
+  syncFontSummary();
+  syncFontModalInputs();
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('companyInput').addEventListener('input', e => {
+  S.designDraft.company_name = e.target.value;
+  refreshDesignApplyState();
+});
+$('presenterInput').addEventListener('input', e => {
+  S.designDraft.presenter_name = e.target.value;
+  refreshDesignApplyState();
+});
+$('footerInput').addEventListener('input', e => {
+  S.designDraft.footer_text = e.target.value;
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('footerEnabledToggle').addEventListener('change', e => {
+  S.designDraft.footer_enabled = e.target.checked;
+  $('footerEnabledText').textContent = e.target.checked ? 'ON' : 'OFF';
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+$('slideNumberToggle').addEventListener('change', e => {
+  S.designDraft.slide_number = e.target.checked;
+  $('slideNumberText').textContent = e.target.checked ? 'ON' : 'OFF';
+  renderFontPreviewModal();
+  refreshDesignApplyState();
+});
+
+$('logoSelectBtn').addEventListener('click', () => $('logoFile').click());
+$('logoClearBtn').addEventListener('click', () => {
+  S.designDraft.logo_uid = null;
+  $('logoFile').value = '';
+  $('logoPreview').style.display = 'none';
+  $('logoPreview').removeAttribute('src');
+  $('logoStatus').textContent = '선택한 이미지는 즉시 업로드되고 이후 PPT 생성에 재사용됩니다.';
+  refreshDesignApplyState();
+});
+
+$('downloadNameInput').addEventListener('input', e => {
+  S.download_name = e.target.value;
+});
+
+$('logoFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  $('logoStatus').textContent = '로고 업로드 중...';
+  const formData = new FormData();
+  formData.append('logo', file);
+
+  try {
+    const response = await fetch('/api/upload-logo', { method: 'POST', body: formData });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || '업로드 실패');
+
+    S.designDraft.logo_uid = data.logo_uid;
+    $('logoPreview').src = URL.createObjectURL(file);
+    $('logoPreview').style.display = 'block';
+    $('logoStatus').textContent = `${file.name} 업로드 완료 · 적용 버튼을 누르면 제작에 반영됩니다.`;
+    refreshDesignApplyState();
+  } catch (error) {
+    S.designDraft.logo_uid = null;
+    $('logoPreview').style.display = 'none';
+    $('logoPreview').removeAttribute('src');
+    $('logoStatus').textContent = '로고 업로드에 실패했습니다.';
+    setSt('st1', 'err', '로고 업로드 오류: ' + error.message);
+  }
+});
+
+$('applyDesignBtn').addEventListener('click', () => {
+  applyDesignSettings();
+  hideSt('st1');
+});
+
+const BM = {title:'bt',agenda:'ba',content:'bc',summary:'bs'};
+const BL = {title:'제목',agenda:'목차',content:'내용',summary:'요약'};
+
+function slideItems(slide) {
+  return (slide.type === 'agenda' ? slide.items : slide.points) || [];
+}
+
+function inferClientKind(slide) {
+  if ((slide.content_kind || '').trim()) return slide.content_kind;
+  const layout = String(slide.layout || '').trim().toLowerCase();
+  if (layout === 'process') return 'process';
+  if (layout === 'compare') return 'compare';
+  return 'explain';
+}
+
+function buildLocalOutline(slides) {
+  return (slides || []).map((slide, index) => ({
+    index: index + 1,
+    type: slide.type || 'content',
+    title: slide.title || '',
+    subtitle: slide.subtitle || '',
+    layout: slide.layout || '',
+    content_kind: inferClientKind(slide),
+    source_pages: slide.source_pages || '',
+    point_count: slideItems(slide).length,
+    has_image: !!slide.image_asset_name,
+    image_page: slide.image_page || null,
+  }));
+}
+
+function computeLocalQuality(slides) {
+  const contentSlides = (slides || []).filter(slide => (slide.type || 'content') === 'content');
+  const seenTitles = {};
+  const kindCounts = {process: 0, compare: 0, case: 0, data: 0, explain: 0};
+  let missingSources = 0;
+  let missingImages = 0;
+  let denseSlides = 0;
+  let longPointSlides = 0;
+  let notesMissing = 0;
+
+  contentSlides.forEach(slide => {
+    const titleKey = String(slide.title || '').trim().toLowerCase();
+    if (titleKey) seenTitles[titleKey] = (seenTitles[titleKey] || 0) + 1;
+
+    const points = slideItems(slide).map(item => String(item || '').trim()).filter(Boolean);
+    if (!String(slide.source_pages || '').trim()) missingSources += 1;
+    if (!slide.image_asset_name) missingImages += 1;
+    if (points.length >= 5 || points.reduce((sum, point) => sum + point.length, 0) >= 240) denseSlides += 1;
+    if (points.some(point => point.length >= 72)) longPointSlides += 1;
+    if (!String(slide.notes || '').trim()) notesMissing += 1;
+
+    const kind = inferClientKind(slide);
+    kindCounts[kind] = (kindCounts[kind] || 0) + 1;
+  });
+
+  const duplicateTitles = Object.values(seenTitles).reduce((sum, count) => sum + (count > 1 ? count - 1 : 0), 0);
+  const warnings = [];
+  if (missingSources) warnings.push(`근거 페이지가 비어 있는 내용 슬라이드 ${missingSources}장`);
+  if (missingImages) warnings.push(`PDF 이미지가 직접 연결되지 않은 내용 슬라이드 ${missingImages}장`);
+  if (denseSlides) warnings.push(`텍스트 밀도가 높은 내용 슬라이드 ${denseSlides}장`);
+  if (longPointSlides) warnings.push(`문장이 긴 포인트가 포함된 슬라이드 ${longPointSlides}장`);
+  if (duplicateTitles) warnings.push(`제목이 겹치는 슬라이드 ${duplicateTitles}장`);
+  if (notesMissing) warnings.push(`발표자 노트가 비어 있는 내용 슬라이드 ${notesMissing}장`);
+
+  return {
+    content_count: contentSlides.length,
+    process_count: kindCounts.process || 0,
+    compare_count: kindCounts.compare || 0,
+    missing_sources: missingSources,
+    missing_images: missingImages,
+    dense_slides: denseSlides,
+    long_point_slides: longPointSlides,
+    duplicate_titles: duplicateTitles,
+    notes_missing: notesMissing,
+    kind_counts: kindCounts,
+    warnings,
+  };
+}
+
+function syncReviewState() {
+  S.outline = buildLocalOutline(S.slides || []);
+  S.quality = computeLocalQuality(S.slides || []);
+}
+
+function pagePlanMetaText() {
+  const parts = [];
+  if (S.page_plan?.selection_note) parts.push(S.page_plan.selection_note);
+  if (Array.isArray(S.page_plan?.selected_pages) && S.page_plan.selected_pages.length) {
+    parts.push(`선택 페이지 ${S.page_plan.selected_pages.length}장`);
+  }
+  if (S.ocr_used) parts.push('OCR 보정 적용됨');
+  else if (S.enhance_scans && S.ocr_note) parts.push(S.ocr_note);
+  return parts.join(' · ');
+}
+
+function renderQualitySummary() {
+  const quality = S.quality || computeLocalQuality(S.slides || []);
+  const cards = [
+    {value: quality.content_count || 0, label: '콘텐츠 슬라이드'},
+    {value: quality.process_count || 0, label: '프로세스형'},
+    {value: quality.compare_count || 0, label: '비교형'},
+    {value: quality.missing_sources || 0, label: '근거 페이지 미지정'},
+    {value: quality.missing_images || 0, label: '이미지 자동 연결 없음'},
+    {value: quality.dense_slides || 0, label: '텍스트 과밀 후보'},
+  ];
+
+  $('qualityGrid').innerHTML = cards.map(card => `
+    <div class="quality-card">
+      <div class="quality-value">${esc(card.value)}</div>
+      <div class="quality-label">${esc(card.label)}</div>
+    </div>
+  `).join('');
+
+  $('qualityNote').textContent = pagePlanMetaText()
+    || '슬라이드별 유형과 근거 페이지, 이미지 연결 상태를 먼저 확인한 뒤 생성하면 수정 비용이 크게 줄어듭니다.';
+
+  $('qualityWarnings').innerHTML = (quality.warnings || []).length
+    ? quality.warnings.map(item => `<div class="warn-item">${esc(item)}</div>`).join('')
+    : '<div class="warn-item" style="color:#166534;background:#ECFDF5;border-color:#BBF7D0">현재 기준으로는 큰 품질 경고가 없습니다. 필요하면 "품질 점검 다시 적용"으로 레이아웃과 근거 페이지를 다시 정리할 수 있습니다.</div>';
+}
+
+function renderSlideCards() {
+  $('sg').innerHTML = (S.slides || []).map((slide, index) => {
+    const type = slide.type || 'content';
+    const kind = inferClientKind(slide);
+    const layoutBadge = type === 'content' ? `<span class="bge bt">${esc(layoutLabel(slide.layout || S.design.content_layout))}</span>` : '';
+    const sourceBadge = type === 'content' && slide.source_pages ? `<span class="bge ba">${esc(slide.source_pages)}</span>` : '';
+    const kindBadge = type === 'content' ? `<span class="bge bs">${esc(CONTENT_KIND_LABELS[kind] || '설명형')}</span>` : '';
+    const points = slideItems(slide).slice(0, 3).map(point => `<div class="sc-pi">${esc(point)}</div>`).join('');
+    return `<div class="sc"><div class="sc-r"><span class="sc-n">${index + 1}</span><span class="sc-t">${esc(slide.title || '')}</span><span class="bge ${BM[type] || 'bc'}">${BL[type] || '내용'}</span>${kindBadge}${layoutBadge}${sourceBadge}</div>${points ? `<div class="sc-p">${points}</div>` : ''}</div>`;
+  }).join('');
+}
+
+function renderOutlineEditor() {
+  $('outlineEditor').innerHTML = (S.slides || []).map((slide, index) => {
+    const type = slide.type || 'content';
+    const kind = inferClientKind(slide);
+    const pointsText = slideItems(slide).join('\n');
+    const subtitleValue = slide.subtitle || '';
+    const hasImage = !!slide.image_asset_name;
+
+    return `
+      <div class="outline-item">
+        <div class="outline-top">
+          <div class="outline-left">
+            <div class="outline-num">${index + 1}</div>
+            <div style="min-width:0;flex:1">
+              <div style="font-size:13px;font-weight:700;line-height:1.4">${esc(slide.title || `${BL[type] || '슬라이드'} ${index + 1}`)}</div>
+              <div class="outline-meta">
+                <span class="chip-soft">${esc(BL[type] || '내용')}</span>
+                ${type === 'content' ? `<span class="chip-soft chip-kind">${esc(CONTENT_KIND_LABELS[kind] || '설명형')}</span>` : ''}
+                ${type === 'content' && slide.source_pages ? `<span class="chip-soft chip-src">${esc(slide.source_pages)}</span>` : ''}
+                ${hasImage ? `<span class="chip-soft chip-img">PDF 이미지 ${esc(slide.image_page || '')}</span>` : ''}
+              </div>
+            </div>
+          </div>
+          <div class="outline-actions">
+            <button type="button" class="btn-mini" data-move="-1" data-index="${index}" ${index === 0 ? 'disabled' : ''}>위로</button>
+            <button type="button" class="btn-mini" data-move="1" data-index="${index}" ${index === (S.slides.length - 1) ? 'disabled' : ''}>아래로</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>제목</label>
+          <input type="text" class="txt-input" data-slide-field="title" data-index="${index}" value="${escAttr(slide.title || '')}" placeholder="슬라이드 제목">
+        </div>
+
+        ${(type === 'title' || type === 'content') ? `
+          <div class="field">
+            <label>부제</label>
+            <input type="text" class="txt-input" data-slide-field="subtitle" data-index="${index}" value="${escAttr(subtitleValue)}" placeholder="필요할 때만 입력">
+          </div>
+        ` : ''}
+
+        ${type === 'content' ? `
+          <div class="mini-input-grid">
+            <div class="field">
+              <label>근거 페이지</label>
+              <input type="text" class="txt-input" data-slide-field="source_pages" data-index="${index}" value="${escAttr(slide.source_pages || '')}" placeholder="예: 12-14">
+            </div>
+            <div class="field">
+              <label>레이아웃</label>
+              <select class="select-input" data-slide-field="layout" data-index="${index}">
+                ${LAYOUT_OPTIONS.map(option => `<option value="${option.id}" ${String(slide.layout || 'auto') === option.id ? 'selected' : ''}>${esc(option.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>이미지 연결</label>
+              <input type="text" class="txt-input" value="${hasImage ? `PDF ${slide.image_page || ''}p` : '자동 재연결 대기'}" disabled>
+            </div>
+          </div>
+        ` : ''}
+
+        ${type !== 'title' ? `
+          <div class="field">
+            <label>${type === 'agenda' ? '목차 항목' : '포인트'}</label>
+            <textarea class="txt-input mini-points" data-slide-field="points_text" data-index="${index}" placeholder="한 줄에 한 항목씩 입력하세요">${esc(pointsText)}</textarea>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function updateSlideField(index, field, value) {
+  const slide = { ...(S.slides[index] || {}) };
+  const type = slide.type || 'content';
+  if (!slide || !S.slides[index]) return;
+
+  if (field === 'title') {
+    slide.title = value;
+  } else if (field === 'subtitle') {
+    if (value.trim()) slide.subtitle = value;
+    else delete slide.subtitle;
+  } else if (field === 'source_pages' && type === 'content') {
+    if (value.trim()) slide.source_pages = value.trim();
+    else delete slide.source_pages;
+  } else if (field === 'layout' && type === 'content') {
+    slide.layout = value || 'auto';
+    if (slide.layout === 'process') slide.content_kind = 'process';
+    else if (slide.layout === 'compare') slide.content_kind = 'compare';
+  } else if (field === 'points_text') {
+    const lines = parseLines(value);
+    if (type === 'agenda') {
+      slide.items = lines;
+      delete slide.points;
+    } else {
+      slide.points = lines;
+      delete slide.items;
+    }
+  }
+
+  S.slides[index] = slide;
+  syncReviewState();
+  renderQualitySummary();
+  renderSlideCards();
+}
+
+function moveSlide(index, direction) {
+  const target = index + direction;
+  if (target < 0 || target >= S.slides.length) return;
+  const nextSlides = S.slides.slice();
+  const [picked] = nextSlides.splice(index, 1);
+  nextSlides.splice(target, 0, picked);
+  S.slides = nextSlides;
+  syncReviewState();
+  renderOutlineEditor();
+  renderQualitySummary();
+  renderSlideCards();
+}
+
+$('ab').onclick = async () => {
+  if (isDesignDirty()) {
+    setSt('st1', 'err', '디자인 변경사항이 있습니다. "디자인 설정 적용" 버튼을 눌러 반영한 뒤 진행해 주세요.');
+    return;
+  }
+
+  $('ab').disabled = true;
+  $('ab').textContent = '분석 중...';
+  setSt('st1', 'load', 'Claude AI가 PDF를 분석하고 있습니다... (30~60초 소요)');
+
+  const formData = new FormData();
+  formData.append('file', S.file);
+  formData.append('slide_count', S.cnt);
+  formData.append('auto_slide_count', S.auto_slide_count ? 'true' : 'false');
+  formData.append('enhance_scans', S.enhance_scans ? 'true' : 'false');
+  formData.append('page_range', $('pr').value.trim());
+  formData.append('extra_prompt', $('ep').value.trim());
+
+  try {
+    const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || '분석 실패');
+    S.slides = data.slides;
+    S.outline = data.outline || [];
+    S.quality = data.quality || null;
+    S.page_plan = data.page_plan || null;
+    S.assets = data.assets || [];
+    S.ocr_available = !!data.ocr_available;
+    S.ocr_used = !!data.ocr_used;
+    S.ocr_note = data.ocr_error || (S.enhance_scans && !data.ocr_available ? 'OCR 보정을 요청했지만 현재 서버에서 사용할 수 없습니다.' : '');
+    syncScanControls();
+    showStepTwo();
+  } catch (error) {
+    setSt('st1', 'err', '오류: ' + error.message);
+    $('ab').disabled = false;
+    $('ab').textContent = '분석 시작';
+  }
+};
+
+function showStepTwo() {
+  syncReviewState();
+  $('s1').style.display = 'none';
+  $('s2').style.display = 'block';
+  hideSt('st2');
+  const contentCount = S.slides.filter(item => item.type === 'content').length;
+  $('pm').textContent = `총 ${S.slides.length}장 · 콘텐츠 ${contentCount}장 · PDF 이미지 ${S.assets.length}개 추출 · ${presetLabel(S.design.preset)} · ${layoutLabel(S.design.content_layout)}`;
+  renderQualitySummary();
+  renderOutlineEditor();
+  renderSlideCards();
+}
+
+$('bk').onclick = () => {
+  $('s2').style.display = 'none';
+  $('s1').style.display = 'block';
+  $('ab').disabled = false;
+  $('ab').textContent = '분석 시작';
+  hideSt('st1');
+};
+
+$('outlineEditor').addEventListener('input', e => {
+  const target = e.target.closest('[data-slide-field]');
+  if (!target) return;
+  updateSlideField(Number(target.dataset.index), target.dataset.slideField, target.value);
+});
+
+$('outlineEditor').addEventListener('change', e => {
+  const target = e.target.closest('[data-slide-field]');
+  if (!target) return;
+  updateSlideField(Number(target.dataset.index), target.dataset.slideField, target.value);
+});
+
+$('outlineEditor').addEventListener('click', e => {
+  const button = e.target.closest('[data-move]');
+  if (!button) return;
+  moveSlide(Number(button.dataset.index), Number(button.dataset.move));
+});
+
+$('reviewBtn').onclick = async () => {
+  if (!S.slides || !S.slides.length) return;
+
+  $('reviewBtn').disabled = true;
+  setSt('st2', 'load', '슬라이드 구성과 레이아웃을 다시 점검하고 있습니다...');
+
+  try {
+    const response = await fetch('/api/review-slides', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        slides: S.slides,
+        assets: S.assets,
+        page_plan: S.page_plan,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || '품질 점검 실패');
+
+    S.slides = data.slides || S.slides;
+    S.outline = data.outline || buildLocalOutline(S.slides);
+    S.quality = data.quality || computeLocalQuality(S.slides);
+    renderQualitySummary();
+    renderOutlineEditor();
+    renderSlideCards();
+    setSt('st2', 'ok', '품질 점검을 다시 적용했습니다. 레이아웃과 근거 페이지 연결 상태를 최신 기준으로 반영했습니다.');
+  } catch (error) {
+    setSt('st2', 'err', '오류: ' + error.message);
+  } finally {
+    $('reviewBtn').disabled = false;
+  }
+};
+
+$('gb').onclick = async () => {
+  if (isDesignDirty()) {
+    setSt('st2', 'err', '디자인 변경사항이 아직 적용되지 않았습니다. 다시 업로드 화면에서 디자인을 적용해 주세요.');
+    return;
+  }
+
+  $('gb').disabled = true;
+  setSt('st2', 'load', 'PPT 파일을 생성하고 있습니다...');
+
+  try {
+    const response = await fetch('/api/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        slides: S.slides,
+        assets: S.assets,
+        page_plan: S.page_plan,
+        design: S.design,
+        pdf_name: S.file.name,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || '생성 실패');
+
+    S.preview_uid = data.preview_uid;
+    S.download_name = data.download_name || S.download_name || defaultDownloadName(S.file.name);
+    $('ds').textContent = data.slide_count + '장';
+    $('dth').textContent = data.preset;
+    $('dn').textContent = '미리보기에서 슬라이드 내용을 수정한 뒤 다시 저장할 수도 있습니다.';
+    $('downloadNameInput').value = S.download_name;
+    $('s2').style.display = 'none';
+    $('s3').style.display = 'block';
+  } catch (error) {
+    setSt('st2', 'err', '오류: ' + error.message);
+    $('gb').disabled = false;
+  }
+};
+
+$('dlb').onclick = () => {
+  if (S.preview_uid) location.href = buildDownloadUrl(S.preview_uid, $('downloadNameInput').value);
+};
+$('pvb').onclick = () => {
+  if (!S.preview_uid) return;
+  const params = new URLSearchParams();
+  if ($('downloadNameInput').value.trim()) params.set('name', $('downloadNameInput').value.trim());
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  window.open('/preview/' + S.preview_uid + suffix, '_blank');
+};
+
+$('rb').onclick = () => {
+  S = createInitialState();
+  closeFontPreviewModal();
+  fi.value = '';
+  $('logoFile').value = '';
+  $('di').textContent = '📄';
+  $('dt').textContent = '클릭하거나 파일을 드래그하세요';
+  $('df').style.display = 'none';
+  dz.classList.remove('ok');
+  $('oc').style.display = 'none';
+  $('dc').style.display = 'none';
+  $('pc').style.display = 'none';
+  $('scanCard').style.display = 'none';
+  $('epc').style.display = 'none';
+  $('pr').value = '';
+  $('ep').value = '';
+  $('downloadNameInput').value = '';
+  $('cv').textContent = '10';
+  $('autoSlideCount').checked = false;
+  $('enhanceScansToggle').checked = false;
+  $('ab').disabled = true;
+  $('ab').textContent = '분석 시작';
+  $('gb').disabled = false;
+  $('s3').style.display = 'none';
+  $('s1').style.display = 'block';
+  hideSt('st1');
+  hideSt('st2');
+  syncDesignInputs();
+  updateSlideCountUI();
+  syncScanControls();
+};
+
+async function loadH() {
+  try {
+    const list = await (await fetch('/api/history')).json();
+    const el = $('hc');
+    if (!list.length) {
+      el.innerHTML = '<div class="he">아직 생성된 파일이 없습니다</div>';
+      return;
+    }
+    el.innerHTML = list.map(item => `
+      <div class="hi">
+        <div class="hii">📑</div>
+        <div class="hin">
+          <div class="hin-t">${esc(item.pdf_name)}</div>
+          <div class="hin-m">
+            <span>${esc(item.date)}</span>
+            <span>${esc(item.slide_count)}장</span>
+            <span class="ttag">${esc(presetLabel(item.theme))}</span>
+          </div>
+        </div>
+        ${item.uid ? `<a href="/download/${encodeURIComponent(item.uid)}" class="btn btn-g" style="font-size:12px;text-decoration:none">받기</a>` : ''}
+      </div>
+    `).join('');
+  } catch (_) {
+    $('hc').innerHTML = '<div class="he">히스토리를 불러올 수 없습니다</div>';
+  }
+}
+
+syncDesignInputs();
+renderLayoutGrid();
+ensureDesignMeta();
+ensureCapabilities();
+updateSlideCountUI();
+</script>
+</body>
+</html>

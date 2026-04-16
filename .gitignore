@@ -1,0 +1,31 @@
+# 환경변수
+.env
+
+# 업로드/출력 폴더 (런타임 생성 파일)
+uploads/
+outputs/
+
+# 히스토리 (로컬 전용)
+history.json
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 빌드/패키징
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 에디터
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+tmp_test_assets/
