@@ -328,12 +328,21 @@ def api_analyze():
             _asset_bundle_dir(uid),
             bundle_uid=uid,
         )
-        slides_data = analyze_pdf(
-            analysis_pdf_path,
-            slide_count,
-            page_range=page_range or None,
-            extra_prompt=extra_prompt or None,
-        )
+        try:
+            slides_data = analyze_pdf(
+                analysis_pdf_path,
+                slide_count,
+                page_range=page_range or None,
+                extra_prompt=extra_prompt or None,
+            )
+        except UnicodeEncodeError:
+            slides_data = analyze_pdf(
+                analysis_pdf_path,
+                slide_count,
+                page_range=page_range or None,
+                extra_prompt=extra_prompt or None,
+                ascii_safe_mode=True,
+            )
         prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan["selected_pages"])
         return jsonify(
             {

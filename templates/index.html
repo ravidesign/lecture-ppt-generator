@@ -160,18 +160,18 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
 .design-summary{font-size:12px;color:var(--sub);line-height:1.55}
 .modal{position:fixed;inset:0;background:rgba(15,23,42,.54);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
 .modal.open{display:flex}
-.modal-card{width:min(940px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--white);border:1px solid var(--border);border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.18);padding:22px}
+.modal-card{width:min(80vw,1560px);max-width:calc(100vw - 24px);max-height:calc(100vh - 32px);overflow:auto;background:var(--white);border:1px solid var(--border);border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.18);padding:26px 28px}
 .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
 .modal-title{font-size:18px;font-weight:700}
 .modal-sub{font-size:12px;color:var(--sub);margin-top:4px;line-height:1.6}
 .modal-close{width:36px;height:36px;border:none;border-radius:10px;background:var(--card);cursor:pointer;font-size:16px;color:var(--sub)}
-.modal-body{display:grid;grid-template-columns:320px 1fr;gap:18px}
+.modal-body{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);gap:24px;align-items:start}
 .font-modal-grid{display:grid;gap:14px}
 .font-inline{display:flex;align-items:center;gap:10px}
 .font-inline .txt-input{width:112px}
 .font-inline span{font-size:12px;color:var(--sub)}
-.font-preview-wrap{border:1px solid var(--border);border-radius:14px;background:#111827;padding:16px;display:flex;align-items:center;justify-content:center}
-.font-preview-stage{width:100%;max-width:560px;aspect-ratio:16/9;background:#fff;border-radius:4px;overflow:hidden;box-shadow:0 10px 24px rgba(15,23,42,.16);position:relative}
+.font-preview-wrap{border:1px solid var(--border);border-radius:14px;background:#111827;padding:20px;display:flex;align-items:center;justify-content:center;min-height:100%}
+.font-preview-stage{width:100%;max-width:none;aspect-ratio:16/9;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 10px 24px rgba(15,23,42,.16);position:relative}
 .font-preview-footer{position:absolute;left:0;right:0;bottom:0;height:34px;display:flex;align-items:center;padding:0 18px;gap:8px}
 .font-preview-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
 .prev-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px}

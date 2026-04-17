@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 
 import anthropic
 
@@ -11,53 +12,50 @@ from core.pdf_parser import (
     resolve_page_selection,
 )
 
-FINAL_SYSTEM_PROMPT = """당신은 전문 강의 교안 설계자입니다.
-제공된 문서 분석 결과를 바탕으로 강의용 슬라이드 구조를 JSON 배열로만 반환하세요.
+FINAL_SYSTEM_PROMPT = """You are an expert lecture-slide planner.
+Return only a JSON array for a lecture deck structure based on the supplied document.
+Do not return Markdown, code fences, or any explanatory text.
 
-반드시 아래 형식의 JSON 배열만 반환하세요. 코드블록(```), 설명 텍스트 절대 금지.
-
-스키마:
+Schema:
 [
-  {"type":"title","title":"강의 제목","subtitle":"부제목"},
-  {"type":"agenda","title":"목차","items":["주제1","주제2","주제3"]},
-  {"type":"content","title":"슬라이드 제목","subtitle":"선택적 보조 제목","layout":"classic|split|card|highlight|process|compare|auto","source_pages":"12-14","points":["핵심 포인트1","핵심 포인트2","핵심 포인트3"],"notes":"발표자 노트"},
-  {"type":"summary","title":"핵심 요약","points":["요약1","요약2","요약3"]}
+  {"type":"title","title":"Lecture title","subtitle":"Subtitle"},
+  {"type":"agenda","title":"Agenda","items":["Topic 1","Topic 2","Topic 3"]},
+  {"type":"content","title":"Slide title","subtitle":"Optional helper title","layout":"classic|split|card|highlight|process|compare|auto","source_pages":"12-14","points":["Point 1","Point 2","Point 3"],"notes":"Presenter notes"},
+  {"type":"summary","title":"Key Summary","points":["Summary 1","Summary 2","Summary 3"]}
 ]
 
-규칙:
-- title 슬라이드 1장
-- agenda 슬라이드 1장
-- summary 슬라이드 1장
-- content 슬라이드는 사용자 요청 개수에 맞추거나, 자동 모드라면 문서 분량에 맞게 5장 이상 50장 이하로 결정
-- 포인트는 3-5개, 각 포인트는 최대한 짧고 명확하게
-- PDF 원문 언어 그대로 사용
-- 발표자 노트는 모든 content 슬라이드에 필수이며 1-2문장으로 간결하게 작성
-- 모든 content 슬라이드에는 반드시 layout 필드를 넣고, 슬라이드 내용 전달 방식에 맞게 classic / split / card / highlight / process / compare / auto 중 하나를 선택
-- 모든 content 슬라이드에는 반드시 source_pages 필드를 넣고, 이 슬라이드가 주로 참고한 PDF 페이지 범위를 `12-14` 같은 형식으로 적기
-- 같은 자료라도 모든 content 슬라이드에 같은 layout을 반복하지 말고, 설명 구조에 따라 자연스럽게 섞어서 사용
-- classic: 일반 설명형, split: 섹션 소개/사례형, card: 4-5개의 짧고 병렬적인 항목, highlight: 가장 중요한 한 문장을 크게 강조, process: 절차/단계/플로우 설명, compare: 두 관점 비교
-- 적절한 레이아웃이 명확하지 않으면 auto 사용
-- 별도 지시가 없으면 PDF에 들어 있는 이미지나 도표를 강의 슬라이드에서 활용하기 좋은 페이지를 source_pages로 우선 지정
-- 큰 문서는 여러 청크 요약을 종합한 결과일 수 있으므로 중복 없이 구조화
+Rules:
+- Include exactly one title slide, one agenda slide, and one summary slide.
+- Use the requested number of content slides, or if auto mode is used choose between 5 and 50 content slides based on document length.
+- Keep each point short and clear, usually 3 to 5 points per content slide.
+- Preserve the original document language in slide text.
+- Every content slide must include presenter notes of 1 to 2 concise sentences.
+- Every content slide must include both layout and source_pages fields.
+- Mix layouts naturally instead of repeating the same layout everywhere.
+- classic: general explanation, split: section intro or case, card: short parallel items, highlight: one major takeaway, process: flow or steps, compare: contrast two perspectives.
+- Prefer pages with images, charts, or diagrams when assigning source_pages unless the material clearly suggests otherwise.
+- The document may have been summarized in chunks already, so merge repeated themes and produce one coherent lecture flow.
 """
 
-CHUNK_SYSTEM_PROMPT = """당신은 긴 PDF를 여러 구간으로 나눠 분석하는 강의 설계 보조자입니다.
-입력된 PDF 구간을 읽고 아래 JSON 객체 하나만 반환하세요. 코드블록이나 설명은 금지합니다.
+CHUNK_SYSTEM_PROMPT = """You are helping summarize one chunk of a long PDF for lecture design.
+Return exactly one JSON object and nothing else.
 
-스키마:
+Schema:
 {
-  "chunk_title": "이 구간의 제목 또는 핵심 주제",
-  "topics": ["주제1", "주제2", "주제3"],
-  "key_points": ["핵심 요점1", "핵심 요점2", "핵심 요점3"],
-  "section_titles": ["섹션명1", "섹션명2"],
-  "teaching_focus": ["강의에서 강조할 포인트1", "강의에서 강조할 포인트2"]
+  "chunk_title": "Main chunk topic",
+  "topics": ["Topic 1", "Topic 2", "Topic 3"],
+  "key_points": ["Key point 1", "Key point 2", "Key point 3"],
+  "section_titles": ["Section 1", "Section 2"],
+  "teaching_focus": ["Focus point 1", "Focus point 2"]
 }
 
-규칙:
-- topics, key_points, section_titles, teaching_focus는 각각 3-8개
-- 중복 없이 간결하게
-- PDF 원문 언어 그대로 유지
+Rules:
+- Keep every list concise and non-duplicated.
+- Usually return 3 to 8 items for each list.
+- Preserve the original document language inside the content itself.
 """
+
+NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
 
 
 def _load_json(raw_text: str):
@@ -79,30 +77,51 @@ def _encode_pdf_bytes(pdf_bytes: bytes) -> str:
     return base64.standard_b64encode(pdf_bytes).decode("utf-8")
 
 
-def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt: str | None) -> str:
+def _contains_non_ascii(value: str | None) -> bool:
+    return bool(value and NON_ASCII_RE.search(str(value)))
+
+
+def _safe_user_instruction(value: str | None, fallback: str | None = None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not _contains_non_ascii(text):
+        return text
+    return fallback
+
+
+def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> str:
     page_summary = format_page_ranges(page_plan["selected_pages"])
     if slide_count is None:
         slide_instruction = (
-            "content 슬라이드는 문서 분량에 맞게 자동으로 정해주세요. "
-            "단, content 슬라이드는 5장 이상 50장 이하로 구성해주세요."
+            "Choose the number of content slides automatically based on document length. "
+            "Keep the number of content slides between 5 and 50."
         )
     else:
-        slide_instruction = f"content 슬라이드는 {slide_count}장으로 만들어주세요."
+        slide_instruction = f"Create exactly {slide_count} content slides."
 
     lines = [
-        "이 자료를 분석해서 강의 교안 슬라이드 JSON을 만들어주세요.",
+        "Analyze this document and produce a lecture-slide JSON array.",
         slide_instruction,
-        f"원본 PDF 전체 페이지 수: {page_plan['total_pages']}",
-        f"이번 분석에 실제 반영된 페이지 수: {len(page_plan['selected_pages'])}",
-        "별도 지시가 없으면 PDF에 포함된 이미지와 도표를 활용하는 강의 자료를 기본값으로 간주해주세요.",
+        f"Total PDF pages: {page_plan['total_pages']}",
+        f"Pages included in this analysis: {len(page_plan['selected_pages'])}",
+        "Prefer a lecture-ready structure that uses images and diagrams from the PDF when helpful.",
     ]
 
     if page_summary:
-        lines.append(f"분석 대상 페이지: {page_summary}")
+        lines.append(f"Selected pages: {page_summary}")
     if page_plan.get("selection_note"):
-        lines.append(page_plan["selection_note"])
+        if ascii_safe_mode or _contains_non_ascii(page_plan.get("selection_note")):
+            lines.append("A local page-selection hint was applied before analysis.")
+        else:
+            lines.append(f"Page-selection note: {page_plan['selection_note']}")
     if extra_prompt and extra_prompt.strip():
-        lines.append(f"추가 지시사항: {extra_prompt.strip()}")
+        safe_prompt = _safe_user_instruction(
+            extra_prompt.strip(),
+            fallback="An additional non-ASCII UI instruction was supplied. Prioritize clarity, examples, and a lecture-friendly structure.",
+        )
+        if safe_prompt:
+            lines.append(f"Additional instruction: {safe_prompt}")
 
     return "\n".join(lines)
 
@@ -145,19 +164,27 @@ def _request_text_json(client, system_prompt: str, user_text: str, max_tokens: i
     return _load_json(response.content[0].text.strip())
 
 
-def _summarize_large_pdf(client, pdf_path: str, page_plan: dict, extra_prompt: str | None) -> list[dict]:
+def _summarize_large_pdf(client, pdf_path: str, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> list[dict]:
     chunk_summaries = []
     for chunk_index, pages in enumerate(chunk_pages(page_plan["selected_pages"], page_plan["chunk_size"]), start=1):
         chunk_pdf = extract_pages_as_bytes(pdf_path, pages)
         chunk_text = (
-            f"이 PDF는 원본 문서의 {format_page_ranges(pages)} 페이지에 해당하는 구간입니다.\n"
-            f"원본 전체 페이지 수는 {page_plan['total_pages']}입니다.\n"
-            f"이 구간을 요약해서 강의 설계에 쓸 핵심 정보를 JSON으로 정리해주세요."
+            f"This PDF chunk corresponds to pages {format_page_ranges(pages)} from the original document.\n"
+            f"The full document has {page_plan['total_pages']} pages.\n"
+            "Summarize this chunk into JSON for lecture planning."
         )
         if page_plan.get("selection_note"):
-            chunk_text += f"\n사용자 요청 맥락: {page_plan['selection_note']}"
+            if ascii_safe_mode or _contains_non_ascii(page_plan.get("selection_note")):
+                chunk_text += "\nA local page-selection hint was applied before chunk analysis."
+            else:
+                chunk_text += f"\nPage-selection note: {page_plan['selection_note']}"
         if extra_prompt and extra_prompt.strip():
-            chunk_text += f"\n추가 지시사항: {extra_prompt.strip()}"
+            safe_prompt = _safe_user_instruction(
+                extra_prompt.strip(),
+                fallback="A non-ASCII additional instruction was supplied in the UI. Favor clarity, examples, and a lecture-friendly structure.",
+            )
+            if safe_prompt:
+                chunk_text += f"\nAdditional instruction: {safe_prompt}"
 
         chunk_summary = _request_pdf_json(
             client,
@@ -181,6 +208,7 @@ def analyze_pdf(
     slide_count: int | None = 10,
     page_range: str = None,
     extra_prompt: str = None,
+    ascii_safe_mode: bool = False,
 ) -> list:
     """PDF → Claude API → 슬라이드 JSON"""
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -188,15 +216,15 @@ def analyze_pdf(
 
     if len(page_plan["selected_pages"]) <= page_plan["chunk_size"]:
         pdf_bytes = extract_pages_as_bytes(pdf_path, page_plan["selected_pages"])
-        user_text = _build_slide_request(slide_count, page_plan, extra_prompt)
+        user_text = _build_slide_request(slide_count, page_plan, extra_prompt, ascii_safe_mode=ascii_safe_mode)
         return _request_pdf_json(client, pdf_bytes, FINAL_SYSTEM_PROMPT, user_text, max_tokens=12000)
 
-    chunk_summaries = _summarize_large_pdf(client, pdf_path, page_plan, extra_prompt)
-    slide_request = _build_slide_request(slide_count, page_plan, extra_prompt)
+    chunk_summaries = _summarize_large_pdf(client, pdf_path, page_plan, extra_prompt, ascii_safe_mode=ascii_safe_mode)
+    slide_request = _build_slide_request(slide_count, page_plan, extra_prompt, ascii_safe_mode=ascii_safe_mode)
     final_text = (
         f"{slide_request}\n\n"
-        "아래는 긴 PDF를 100페이지 이하 청크로 나눠 분석한 결과입니다. "
-        "이 결과를 종합해서 최종 강의 교안 슬라이드 JSON 배열을 만들어주세요.\n\n"
-        f"{json.dumps(chunk_summaries, ensure_ascii=False)}"
+        "Below are chunked lecture-planning summaries from the same PDF. "
+        "Combine them into one final lecture-slide JSON array.\n\n"
+        f"{json.dumps(chunk_summaries, ensure_ascii=True)}"
     )
     return _request_text_json(client, FINAL_SYSTEM_PROMPT, final_text, max_tokens=12000)
