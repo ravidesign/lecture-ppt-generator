@@ -2,25 +2,19 @@ import io
 import json
 import logging
 import os
+import locale
 import re
 import shutil
 import subprocess
 import sys
+import traceback
 import uuid
+from datetime import datetime
 
-# Force UTF-8 encoding on Linux/Render where default may be ASCII
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-# Ensure logging handlers also use UTF-8
-for _handler in logging.root.handlers:
-    if hasattr(_handler, "stream") and hasattr(_handler.stream, "reconfigure"):
-        try:
-            _handler.stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+os.environ.setdefault("LANG", "C.UTF-8")
+os.environ.setdefault("LC_ALL", "C.UTF-8")
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
@@ -40,6 +34,7 @@ from core.slide_quality import build_outline, build_quality_summary, review_slid
 from core.slide_enricher import attach_pdf_images_to_slides
 
 app = Flask(__name__)
+app.json.ensure_ascii = False
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "outputs")
@@ -48,9 +43,108 @@ INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
 SAFE_ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+ERROR_LOG_FILE = os.path.join(OUTPUT_DIR, "server_errors.log")
 OCRMYPDF_BIN = shutil.which("ocrmypdf")
 TESSERACT_BIN = shutil.which("tesseract")
 OCR_AVAILABLE = bool(OCRMYPDF_BIN and TESSERACT_BIN)
+
+
+def _as_utf8_stream(stream):
+    if stream is None:
+        return None
+    try:
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+            return stream
+    except Exception:
+        pass
+
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        try:
+            return io.TextIOWrapper(buffer, encoding="utf-8", errors="replace", line_buffering=True)
+        except Exception:
+            return stream
+    return stream
+
+
+def _ensure_utf8_runtime():
+    for candidate in (
+        os.getenv("LC_ALL"),
+        os.getenv("LANG"),
+        "C.UTF-8",
+        "en_US.UTF-8",
+        "UTF-8",
+    ):
+        if not candidate:
+            continue
+        try:
+            locale.setlocale(locale.LC_ALL, candidate)
+            break
+        except Exception:
+            continue
+
+    sys.stdout = _as_utf8_stream(sys.stdout) or sys.stdout
+    sys.stderr = _as_utf8_stream(sys.stderr) or sys.stderr
+
+    seen = set()
+    for logger in (logging.getLogger(), app.logger):
+        for handler in logger.handlers:
+            if id(handler) in seen:
+                continue
+            seen.add(id(handler))
+            stream = getattr(handler, "stream", None)
+            if stream is None:
+                continue
+            wrapped = _as_utf8_stream(stream)
+            if wrapped is not None and wrapped is not stream and hasattr(handler, "setStream"):
+                try:
+                    handler.setStream(wrapped)
+                except Exception:
+                    pass
+
+
+def _safe_error_text(exc: Exception) -> str:
+    if isinstance(exc, UnicodeEncodeError):
+        return f"텍스트 인코딩 오류 (서버 인코딩 설정 문제): {exc.encoding} codec, position {exc.start}"
+
+    try:
+        text = str(exc).strip()
+    except Exception:
+        text = exc.__class__.__name__
+    return text or exc.__class__.__name__
+
+
+def _record_exception(stage: str, exc: Exception) -> str:
+    _ensure_utf8_runtime()
+    error_id = uuid.uuid4().hex[:8]
+    formatted = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    line = f"[{datetime.utcnow().isoformat()}Z] {stage} error_id={error_id}\n{formatted}\n"
+
+    try:
+        with open(ERROR_LOG_FILE, "a", encoding="utf-8", errors="replace") as handle:
+            handle.write(line)
+    except Exception:
+        pass
+
+    try:
+        print(line, file=sys.stderr)
+    except Exception:
+        try:
+            ascii_line = line.encode("ascii", "backslashreplace").decode("ascii")
+            print(ascii_line, file=sys.stderr)
+        except Exception:
+            pass
+
+    return error_id
+
+
+_ensure_utf8_runtime()
+
+
+@app.before_request
+def _refresh_runtime_encoding():
+    _ensure_utf8_runtime()
 
 
 def _resolve_preset_id(preset_id: str) -> str:
@@ -263,13 +357,9 @@ def api_analyze():
             }
         )
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
         _cleanup_asset_bundle(uid)
-        err_msg = str(exc)
-        if isinstance(exc, UnicodeEncodeError):
-            err_msg = f"텍스트 인코딩 오류 (서버 인코딩 설정 문제): {exc.encoding} codec, position {exc.start}"
-        return jsonify({"error": err_msg}), 500
+        error_id = _record_exception("api_analyze", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
     finally:
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
@@ -400,28 +490,31 @@ def api_generate():
             }
         )
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(exc)}), 500
+        error_id = _record_exception("api_generate", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
 
 @app.route("/api/slides/<uid>")
 def api_slides(uid):
     if not UID_RE.match(uid):
         return jsonify({"error": "invalid uid"}), 400
-    payload = _load_saved_payload(uid)
-    if not payload:
-        return jsonify({"error": "not found"}), 404
-    if not payload.get("download_name"):
-        payload["download_name"] = _default_download_name(
-            payload.get("pdf_name", ""),
-            payload.get("filename", "강의교안.pptx"),
-        )
-    if not payload.get("outline"):
-        payload["outline"] = build_outline(payload.get("slides", []))
-    if not payload.get("quality"):
-        payload["quality"] = build_quality_summary(payload.get("slides", []))
-    return jsonify(payload)
+    try:
+        payload = _load_saved_payload(uid)
+        if not payload:
+            return jsonify({"error": "not found"}), 404
+        if not payload.get("download_name"):
+            payload["download_name"] = _default_download_name(
+                payload.get("pdf_name", ""),
+                payload.get("filename", "강의교안.pptx"),
+            )
+        if not payload.get("outline"):
+            payload["outline"] = build_outline(payload.get("slides", []))
+        if not payload.get("quality"):
+            payload["quality"] = build_quality_summary(payload.get("slides", []))
+        return jsonify(payload)
+    except Exception as exc:
+        error_id = _record_exception("api_slides", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
 
 @app.route("/api/review-slides", methods=["POST"])
@@ -436,15 +529,19 @@ def api_review_slides():
 
     assets = body.get("assets", [])
     page_plan = body.get("page_plan", {})
-    prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan.get("selected_pages"))
-    return jsonify(
-        {
-            "ok": True,
-            "slides": prepared["slides"],
-            "outline": prepared["outline"],
-            "quality": prepared["quality"],
-        }
-    )
+    try:
+        prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan.get("selected_pages"))
+        return jsonify(
+            {
+                "ok": True,
+                "slides": prepared["slides"],
+                "outline": prepared["outline"],
+                "quality": prepared["quality"],
+            }
+        )
+    except Exception as exc:
+        error_id = _record_exception("api_review_slides", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
 
 @app.route("/api/slides/<uid>/update", methods=["POST"])
@@ -498,9 +595,8 @@ def api_update_slides(uid):
             }
         )
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(exc)}), 500
+        error_id = _record_exception("api_update_slides", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
 
 @app.route("/api/history", methods=["GET"])
@@ -524,9 +620,8 @@ def download(uid):
     try:
         buf = generate_pptx_bytes(slides_data, design, resolved_assets)
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(exc)}), 500
+        error_id = _record_exception("download_generate_pptx", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
     download_name = _sanitize_download_name(
         request.args.get("name"),

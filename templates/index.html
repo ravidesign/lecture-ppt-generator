@@ -694,6 +694,11 @@ function setSt(id, type, msg) {
   el.style.display = 'flex';
 }
 
+function apiErrorMessage(data, fallback) {
+  const message = data?.error || fallback;
+  return data?.error_id ? `${message} (error id: ${data.error_id})` : message;
+}
+
 function hideSt(id) {
   $(id).style.display = 'none';
 }
@@ -1297,7 +1302,7 @@ $('logoFile').addEventListener('change', async e => {
   try {
     const response = await fetch('/api/upload-logo', { method: 'POST', body: formData });
     const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error || '업로드 실패');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '업로드 실패'));
 
     S.designDraft.logo_uid = data.logo_uid;
     $('logoPreview').src = URL.createObjectURL(file);
@@ -1590,7 +1595,7 @@ $('ab').onclick = async () => {
   try {
     const response = await fetch('/api/analyze', { method: 'POST', body: formData });
     const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error || '분석 실패');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '분석 실패'));
     S.slides = data.slides;
     S.outline = data.outline || [];
     S.quality = data.quality || null;
@@ -1663,7 +1668,7 @@ $('reviewBtn').onclick = async () => {
       }),
     });
     const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error || '품질 점검 실패');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '품질 점검 실패'));
 
     S.slides = data.slides || S.slides;
     S.outline = data.outline || buildLocalOutline(S.slides);
@@ -1701,7 +1706,7 @@ $('gb').onclick = async () => {
       }),
     });
     const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error || '생성 실패');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '생성 실패'));
 
     S.preview_uid = data.preview_uid;
     S.download_name = data.download_name || S.download_name || defaultDownloadName(S.file.name);
