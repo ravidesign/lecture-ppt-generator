@@ -1,9 +1,26 @@
+import io
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
+import sys
 import uuid
+
+# Force UTF-8 encoding on Linux/Render where default may be ASCII
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Ensure logging handlers also use UTF-8
+for _handler in logging.root.handlers:
+    if hasattr(_handler, "stream") and hasattr(_handler.stream, "reconfigure"):
+        try:
+            _handler.stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
@@ -246,8 +263,13 @@ def api_analyze():
             }
         )
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         _cleanup_asset_bundle(uid)
-        return jsonify({"error": str(exc)}), 500
+        err_msg = str(exc)
+        if isinstance(exc, UnicodeEncodeError):
+            err_msg = f"텍스트 인코딩 오류 (서버 인코딩 설정 문제): {exc.encoding} codec, position {exc.start}"
+        return jsonify({"error": err_msg}), 500
     finally:
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
@@ -378,6 +400,8 @@ def api_generate():
             }
         )
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
 
 
@@ -474,6 +498,8 @@ def api_update_slides(uid):
             }
         )
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
 
 
@@ -498,6 +524,8 @@ def download(uid):
     try:
         buf = generate_pptx_bytes(slides_data, design, resolved_assets)
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
 
     download_name = _sanitize_download_name(
