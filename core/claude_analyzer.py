@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import re
+import unicodedata
 
 import anthropic
 
@@ -99,6 +100,27 @@ def _ensure_ascii_text(value: str | None, fallback: str) -> str:
 
     compact = text.encode("ascii", "ignore").decode("ascii").strip()
     return compact or fallback
+
+
+def _sanitize_api_key(raw_value: str | None) -> str:
+    text = str(raw_value or "")
+    if not text:
+        return ""
+
+    normalized = unicodedata.normalize("NFKC", text)
+    no_format = "".join(ch for ch in normalized if unicodedata.category(ch) != "Cf")
+    no_space = "".join(ch for ch in no_format if not ch.isspace())
+    stripped = no_space.strip().strip('"').strip("'")
+    ascii_only = stripped.encode("ascii", "ignore").decode("ascii")
+    return ascii_only
+
+
+def _build_client() -> anthropic.Anthropic:
+    raw_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = _sanitize_api_key(raw_key)
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is missing or invalid after sanitization.")
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> str:
@@ -238,7 +260,7 @@ def analyze_pdf(
     ascii_safe_mode: bool = False,
 ) -> list:
     """PDF → Claude API → 슬라이드 JSON"""
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = _build_client()
     page_plan = resolve_page_selection(pdf_path, page_range, max_pages_per_chunk=100)
 
     if len(page_plan["selected_pages"]) <= page_plan["chunk_size"]:
