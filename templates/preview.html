@@ -59,6 +59,15 @@ select.editor-input{appearance:none;-webkit-appearance:none;padding-right:40px;b
 .editor-input:focus,.editor-textarea:focus{border-color:#60A5FA}
 .editor-textarea{min-height:110px;resize:vertical;line-height:1.6}
 .editor-actions{display:flex;gap:8px;flex-wrap:wrap}
+.variant-actions{display:flex;gap:8px;flex-wrap:wrap}
+.variant-grid{display:grid;gap:10px}
+.variant-card{border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:#111827;padding:10px;display:flex;flex-direction:column;gap:8px}
+.variant-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.variant-card-title{font-size:12px;font-weight:700;color:#E5E7EB}
+.variant-card-meta{font-size:11px;color:#93A3B8}
+.variant-preview{border-radius:10px;overflow:hidden;background:#0F172A;position:relative;height:118px}
+.variant-preview-inner{position:absolute;top:0;left:0;width:960px;height:540px;transform-origin:top left;transform:scale(.123)}
+.variant-empty{font-size:11px;color:#93A3B8;line-height:1.5}
 .status{display:none;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}
 .status.ok{display:block;background:#12261B;color:#86EFAC}
 .status.err{display:block;background:#2A1515;color:#FCA5A5}
@@ -149,6 +158,8 @@ select.editor-input{appearance:none;-webkit-appearance:none;padding-right:40px;b
               <option value="highlight">하이라이트</option>
               <option value="process">프로세스</option>
               <option value="compare">비교</option>
+              <option value="image_left">이미지 좌측</option>
+              <option value="image_top">이미지 상단</option>
             </select>
             <div class="field-help">현재 슬라이드 내용에 맞는 구성을 자동 추천하거나, 원하는 레이아웃으로 직접 고정할 수 있습니다.</div>
           </div>
@@ -168,6 +179,17 @@ select.editor-input{appearance:none;-webkit-appearance:none;padding-right:40px;b
           <div class="field">
             <label for="notesInput">발표자 노트</label>
             <textarea id="notesInput" class="editor-textarea" placeholder="발표할 때 참고할 메모를 입력하세요"></textarea>
+          </div>
+
+          <div class="field" id="variantField">
+            <label>이 슬라이드 시안 3개</label>
+            <div class="field-help">현재 슬라이드만 다시 구성한 3개 시안을 보고 하나를 적용할 수 있습니다.</div>
+            <div class="variant-actions">
+              <button type="button" class="tbtn" id="variantBtn">이 슬라이드 시안 3개 만들기</button>
+            </div>
+            <div class="variant-grid" id="variantGrid">
+              <div class="variant-empty">시안을 만들면 여기에서 레이아웃별 비교가 나타납니다.</div>
+            </div>
           </div>
 
           <div class="status" id="editorStatus"></div>
@@ -194,6 +216,7 @@ let fileName = '';
 let pdfName = '';
 let assets = [];
 let pagePlan = {};
+let slideVariants = [];
 
 const LEGACY_THEME_PRESET_MAP = {
   navy: 'corporate',
@@ -208,6 +231,13 @@ const TYPE_LABELS = {
   content: '내용 슬라이드',
   summary: '요약 슬라이드',
 };
+const ROLE_LABELS = {
+  title: '제목 슬라이드',
+  toc: '목차 슬라이드',
+  content: '내용 슬라이드',
+  chapter: '챕터 슬라이드',
+  summary: '요약 슬라이드',
+};
 
 const CONTENT_LAYOUT_LABELS = {
   auto: '자동 추천',
@@ -217,6 +247,9 @@ const CONTENT_LAYOUT_LABELS = {
   highlight: '하이라이트',
   process: '프로세스',
   compare: '비교',
+  image_left: '이미지 좌측',
+  image_top: '이미지 상단',
+  chapter: '챕터',
 };
 
 const JS_PRESETS = {
@@ -279,6 +312,14 @@ async function readApiPayload(response, fallback) {
 
 function cssFont(value) {
   return String(value || 'Malgun Gothic').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function escAttr(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function normalizePresetId(preset) {
@@ -385,14 +426,33 @@ function resolveTheme(designConfig) {
 
 function normalizeLayoutId(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  return ['auto', 'classic', 'split', 'card', 'highlight', 'process', 'compare'].includes(normalized) ? normalized : 'auto';
+  return ['auto', 'classic', 'split', 'card', 'highlight', 'process', 'compare', 'image_left', 'image_top', 'chapter'].includes(normalized) ? normalized : 'auto';
+}
+
+function slideRole(data) {
+  const type = String(data?.type || 'content').trim().toLowerCase();
+  const role = String(data?.role || '').trim().toLowerCase();
+  if (role) return role;
+  if (type === 'title') return 'title';
+  if (type === 'agenda') return 'toc';
+  if (type === 'summary') return 'summary';
+  return 'content';
+}
+
+function slideImageMode(data) {
+  const mode = String(data?.image_mode || 'none').trim().toLowerCase();
+  return ['hero', 'support', 'none'].includes(mode) ? mode : 'none';
 }
 
 function inferAutoLayout(data) {
+  if (slideRole(data) === 'chapter') return 'chapter';
   const points = (data.points || []).map(point => String(point || '').trim()).filter(Boolean);
   const subtitle = String(data.subtitle || '').trim();
+  const imageMode = slideImageMode(data);
+  const orientation = String(data.image_orientation || '').trim().toLowerCase() || 'square';
 
   if (!points.length) return 'classic';
+  if (imageMode === 'hero' && data.image_asset_name) return orientation === 'portrait' ? 'image_left' : 'image_top';
 
   const lengths = points.map(point => point.length);
   const maxLen = Math.max(...lengths);
@@ -410,6 +470,7 @@ function inferAutoLayout(data) {
 }
 
 function resolveContentLayout(data, t) {
+  if (slideRole(data) === 'chapter') return 'chapter';
   const slideLayout = normalizeLayoutId(data.layout);
   const themeLayout = normalizeLayoutId(t.content_layout);
 
@@ -544,6 +605,19 @@ function renderTitle(data, t, slideNum) {
   </div>`;
 }
 
+function renderChapter(data, t, slideNum) {
+  const previewPoint = (data.points || [])[0] || '';
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.header};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    <div style="position:absolute;left:0;right:0;bottom:0;height:112px;background:${t.title_dark}"></div>
+    <div style="position:absolute;left:56px;top:238px;width:184px;height:6px;background:${t.accent};border-radius:999px"></div>
+    <div style="position:absolute;left:56px;right:70px;top:102px;color:#FFFFFF;font-size:${Math.min(t.cover_title_font_size + 2, 56)}px;font-weight:700;line-height:1.28">${esc(data.title || '새 챕터')}</div>
+    ${data.subtitle ? `<div style="position:absolute;left:58px;right:120px;top:288px;color:${t.title_sub};font-size:${Math.max(t.subtitle_font_size, 16)}px;line-height:1.5">${esc(data.subtitle)}</div>` : ''}
+    ${previewPoint ? `<div style="position:absolute;left:58px;top:362px;right:120px;min-height:60px;background:rgba(255,255,255,.14);border-radius:14px;padding:18px 20px;color:#FFFFFF;font-size:${Math.max(t.body_font_size - 1, 15)}px;line-height:1.5">${esc(previewPoint)}</div>` : ''}
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
 function renderAgenda(data, t, slideNum) {
   const header = renderHeader(data.title || '목차', t);
   const rows = (data.items || []).slice(0, 8).map((item, index) => `
@@ -565,20 +639,20 @@ function renderContentClassic(data, t, slideNum) {
   const header = renderHeader(data.title || '', t);
   const rows = renderBulletRows((data.points || []).slice(0, 5), t);
   const asset = slideImageAsset(data);
-  const showImage = shouldRenderSlideImage(asset);
+  const showImage = slideImageMode(data) === 'support' && shouldRenderSlideImage(asset);
   const orientation = imageOrientation(asset);
   let bodyRight = 34;
   let imageHtml = '';
   if (showImage) {
     if (orientation === 'portrait') {
-      bodyRight = 314;
-      imageHtml = renderSlideImage(data, 652, Math.max(header.bodyTop - 2, 104), 248, 314);
+      bodyRight = 302;
+      imageHtml = renderSlideImage(data, 646, Math.max(header.bodyTop - 2, 102), 260, 330);
     } else if (orientation === 'square') {
-      bodyRight = 332;
-      imageHtml = renderSlideImage(data, 632, Math.max(header.bodyTop, 108), 264, 254);
+      bodyRight = 320;
+      imageHtml = renderSlideImage(data, 624, Math.max(header.bodyTop, 106), 276, 270);
     } else {
-      bodyRight = 354;
-      imageHtml = renderSlideImage(data, 606, Math.max(header.bodyTop + 10, 118), 296, 206);
+      bodyRight = 348;
+      imageHtml = renderSlideImage(data, 600, Math.max(header.bodyTop + 8, 116), 304, 214);
     }
   }
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
@@ -593,7 +667,7 @@ function renderContentClassic(data, t, slideNum) {
 function renderContentSplit(data, t, slideNum) {
   const rows = renderBulletRows((data.points || []).slice(0, 5), t);
   const asset = slideImageAsset(data);
-  const showImage = shouldRenderSlideImage(asset);
+  const showImage = slideImageMode(data) === 'support' && shouldRenderSlideImage(asset);
   const orientation = imageOrientation(asset);
   let bodyTop = 86;
   let bodyRight = 34;
@@ -623,24 +697,10 @@ function renderContentSplit(data, t, slideNum) {
 
 function renderContentCard(data, t, slideNum) {
   const header = renderHeader(data.title || '', t);
-  const asset = slideImageAsset(data);
-  const showImage = shouldRenderSlideImage(asset);
-  const orientation = imageOrientation(asset);
   let gridTop = Math.max(header.bodyTop, 112);
   let gridLeft = 26;
   let gridRight = 26;
   let gridCols = 'repeat(3,minmax(0,1fr))';
-  let imageHtml = '';
-  if (showImage) {
-    if (orientation === 'portrait') {
-      gridRight = 324;
-      gridCols = 'repeat(2,minmax(0,1fr))';
-      imageHtml = renderSlideImage(data, 650, gridTop, 250, 300);
-    } else {
-      imageHtml = renderSlideImage(data, 36, gridTop, 888, 188);
-      gridTop += 206;
-    }
-  }
   const cards = (data.points || []).slice(0, 5).map(point => `
     <div style="position:relative;background:${t.light};border-radius:12px;padding:18px 16px 14px;min-height:122px;overflow:hidden">
       <div style="position:absolute;left:0;right:0;top:0;height:6px;background:${t.accent}"></div>
@@ -649,7 +709,6 @@ function renderContentCard(data, t, slideNum) {
   `).join('');
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
     ${header.html}
-    ${imageHtml}
     <div style="position:absolute;left:${gridLeft}px;right:${gridRight}px;top:${gridTop}px;bottom:44px;display:grid;grid-template-columns:${gridCols};gap:14px;align-content:start">${cards}</div>
     ${renderFooter(t, slideNum)}
     ${renderLogo(design)}
@@ -664,24 +723,9 @@ function renderContentHighlight(data, t, slideNum) {
     <div style="background:${t.light};border-radius:12px;padding:14px 14px 12px;min-height:88px;color:${t.text};font-size:${adaptiveTextSize(point, Math.max(t.body_font_size - 2, 13), 11, 18)}px;line-height:1.5">${esc(point)}</div>
   `).join('');
   const top = Math.max(header.bodyTop, 112);
-  const asset = slideImageAsset(data);
-  const showImage = shouldRenderSlideImage(asset);
-  const orientation = imageOrientation(asset);
-  let leadRight = 36;
-  let imageHtml = '';
-  if (showImage) {
-    if (orientation === 'portrait') {
-      leadRight = 316;
-      imageHtml = renderSlideImage(data, 650, top - 6, 250, 248);
-    } else {
-      leadRight = 360;
-      imageHtml = renderSlideImage(data, 594, top - 4, 318, 174);
-    }
-  }
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
     ${header.html}
-    ${lead ? `<div style="position:absolute;left:36px;right:${leadRight}px;top:${top}px;height:144px;background:${t.accent};border-radius:14px;padding:22px 26px;color:#FFFFFF;font-size:${Math.min(t.title_font_size + 4, 48)}px;font-weight:700;line-height:1.45">${esc(lead)}</div>` : ''}
-    ${imageHtml}
+    ${lead ? `<div style="position:absolute;left:36px;right:36px;top:${top}px;height:144px;background:${t.accent};border-radius:14px;padding:22px 26px;color:#FFFFFF;font-size:${Math.min(t.title_font_size + 4, 48)}px;font-weight:700;line-height:1.45">${esc(lead)}</div>` : ''}
     <div style="position:absolute;left:36px;right:36px;top:${top + 162}px;bottom:44px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-content:start">${rest}</div>
     ${renderFooter(t, slideNum)}
     ${renderLogo(design)}
@@ -692,9 +736,6 @@ function renderContentProcess(data, t, slideNum) {
   const header = renderHeader(data.title || '', t);
   const top = Math.max(header.bodyTop, 112);
   const steps = (data.diagram_steps || data.points || []).slice(0, 4);
-  const asset = slideImageAsset(data);
-  const showImage = shouldRenderSlideImage(asset);
-  const orientation = imageOrientation(asset);
   const extra = (data.points || []).slice(steps.length, steps.length + 2).map((point, index) => `
     <div style="display:flex;gap:10px;align-items:flex-start">
       <div style="width:12px;height:12px;border-radius:999px;background:${t.accent};margin-top:8px;flex-shrink:0"></div>
@@ -703,16 +744,6 @@ function renderContentProcess(data, t, slideNum) {
   `).join('');
   let rowLeft = 36;
   let rowWidthMax = 888;
-  let imageHtml = '';
-  if (showImage) {
-    if (orientation === 'portrait') {
-      rowWidthMax = 566;
-      imageHtml = renderSlideImage(data, 662, top + 10, 250, 292);
-    } else {
-      rowWidthMax = 550;
-      imageHtml = renderSlideImage(data, 624, top + 8, 288, 168);
-    }
-  }
   const stepWidth = Math.min((rowWidthMax - ((steps.length - 1) * 16)) / Math.max(steps.length, 1), 198);
   const rowWidth = steps.length * stepWidth + Math.max(steps.length - 1, 0) * 16;
   const start = 36 + (rowWidthMax - rowWidth) / 2;
@@ -729,8 +760,7 @@ function renderContentProcess(data, t, slideNum) {
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
     ${header.html}
     ${stepHtml}
-    ${imageHtml}
-    <div style="position:absolute;left:48px;right:${showImage ? 316 : 48}px;top:${top + 194}px;bottom:44px;display:grid;gap:12px;align-content:start">${extra}</div>
+    <div style="position:absolute;left:48px;right:48px;top:${top + 194}px;bottom:44px;display:grid;gap:12px;align-content:start">${extra}</div>
     ${renderFooter(t, slideNum)}
     ${renderLogo(design)}
   </div>`;
@@ -743,26 +773,10 @@ function renderContentCompare(data, t, slideNum) {
   const rightTitle = data.compare_right_title || '핵심 B';
   const leftPoints = (data.compare_left_points || (data.points || []).slice(0, 2)).slice(0, 3);
   const rightPoints = (data.compare_right_points || (data.points || []).slice(2, 4)).slice(0, 3);
-  const asset = slideImageAsset(data);
-  const showImage = shouldRenderSlideImage(asset, 0.024);
-  const orientation = imageOrientation(asset);
-  let imageHtml = '';
   let leftBox = { x: 36, w: 414 };
   let rightBox = { x: 506, w: 414 };
   let dividerLeft = 476;
   let bodyTop = top + 70;
-
-  if (showImage) {
-    if (orientation === 'portrait') {
-      leftBox = { x: 36, w: 252 };
-      rightBox = { x: 328, w: 252 };
-      dividerLeft = 304;
-      imageHtml = renderSlideImage(data, 668, top - 2, 228, 250, { minCoverage: 0.024 });
-    } else {
-      bodyTop = top + 196;
-      imageHtml = renderSlideImage(data, 42, top - 4, 874, 166, { minCoverage: 0.024 });
-    }
-  }
   const renderColumn = (items) => items.map((point, index) => `
     <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">
       <div style="width:12px;height:12px;border-radius:999px;background:${t.accent};margin-top:8px;flex-shrink:0"></div>
@@ -772,12 +786,39 @@ function renderContentCompare(data, t, slideNum) {
 
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
     ${header.html}
-    ${imageHtml}
     <div style="position:absolute;left:${leftBox.x}px;top:${top}px;width:${leftBox.w}px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(leftTitle)}</div>
     <div style="position:absolute;left:${rightBox.x}px;top:${top}px;width:${rightBox.w}px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(rightTitle)}</div>
     <div style="position:absolute;left:${dividerLeft}px;top:${top + 8}px;bottom:52px;width:4px;background:${t.accent};border-radius:999px"></div>
     <div style="position:absolute;left:${leftBox.x}px;top:${bodyTop}px;width:${leftBox.w}px;bottom:44px">${renderColumn(leftPoints)}</div>
     <div style="position:absolute;left:${rightBox.x}px;top:${bodyTop}px;width:${rightBox.w}px;bottom:44px">${renderColumn(rightPoints)}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentImageLeft(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const subtitle = data.subtitle ? `<div style="position:absolute;left:664px;right:28px;top:${header.bodyTop}px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size - 1, 14)}px;font-weight:600;line-height:1.4">${esc(data.subtitle)}</div>` : '';
+  const rows = renderBulletRows((data.points || []).slice(0, 4), { ...t, body_font_size: Math.max(t.body_font_size - 1, 15) });
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    ${renderSlideImage(data, 34, Math.max(header.bodyTop - 2, 102), 588, 356, { minCoverage: 0.02 })}
+    ${subtitle}
+    <div style="position:absolute;left:664px;right:28px;top:${header.bodyTop + (data.subtitle ? 34 : 0)}px;bottom:44px">${rows}</div>
+    ${renderFooter(t, slideNum)}
+    ${renderLogo(design)}
+  </div>`;
+}
+
+function renderContentImageTop(data, t, slideNum) {
+  const header = renderHeader(data.title || '', t);
+  const subtitle = data.subtitle ? `<div style="position:absolute;left:40px;right:40px;top:${header.bodyTop + 244}px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size - 1, 14)}px;font-weight:600;line-height:1.4">${esc(data.subtitle)}</div>` : '';
+  const rows = renderBulletRows((data.points || []).slice(0, 4), { ...t, body_font_size: Math.max(t.body_font_size - 1, 15) });
+  return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
+    ${header.html}
+    ${renderSlideImage(data, 34, Math.max(header.bodyTop - 4, 102), 892, 236, { minCoverage: 0.02 })}
+    ${subtitle}
+    <div style="position:absolute;left:44px;right:44px;top:${header.bodyTop + (data.subtitle ? 282 : 252)}px;bottom:44px">${rows}</div>
     ${renderFooter(t, slideNum)}
     ${renderLogo(design)}
   </div>`;
@@ -801,8 +842,11 @@ function renderSummary(data, t, slideNum) {
 
 function renderContent(data, t, slideNum) {
   const layout = resolveContentLayout(data, t);
+  if (layout === 'chapter') return renderChapter(data, t, slideNum);
   if (layout === 'process') return renderContentProcess(data, t, slideNum);
   if (layout === 'compare') return renderContentCompare(data, t, slideNum);
+  if (layout === 'image_left') return renderContentImageLeft(data, t, slideNum);
+  if (layout === 'image_top') return renderContentImageTop(data, t, slideNum);
   if (layout === 'split') return renderContentSplit(data, t, slideNum);
   if (layout === 'card') return renderContentCard(data, t, slideNum);
   if (layout === 'highlight') return renderContentHighlight(data, t, slideNum);
@@ -811,22 +855,26 @@ function renderContent(data, t, slideNum) {
 
 function renderSlide(data, t, slideNum) {
   const type = data.type || 'content';
+  const role = slideRole(data);
   if (type === 'title') return renderTitle(data, t, slideNum);
   if (type === 'agenda') return renderAgenda(data, t, slideNum);
   if (type === 'summary') return renderSummary(data, t, slideNum);
+  if (role === 'chapter') return renderChapter(data, t, slideNum);
   return renderContent(data, t, slideNum);
 }
 
 function renderThumb(data, idx) {
   const type = data.type || 'content';
-  const layoutLabel = type === 'content' ? ` · ${CONTENT_LAYOUT_LABELS[resolveContentLayout(data, resolvedTheme)] || '클래식'}` : '';
+  const role = slideRole(data);
+  const labelBase = ROLE_LABELS[role] || TYPE_LABELS[type] || '내용 슬라이드';
+  const layoutLabel = type === 'content' && role !== 'chapter' ? ` · ${CONTENT_LAYOUT_LABELS[resolveContentLayout(data, resolvedTheme)] || '클래식'}` : '';
   return `<div class="thumb ${idx === cur ? 'active' : ''}" id="th-${idx}" onclick="goTo(${idx})">
     <div class="thumb-body">
       <div class="thumb-inner" style="transform:scale(0.178)">
         ${renderSlide(data, resolvedTheme, idx + 1)}
       </div>
     </div>
-    <div class="thumb-label">${idx + 1} · ${TYPE_LABELS[type] || '내용 슬라이드'}${layoutLabel}</div>
+    <div class="thumb-label">${idx + 1} · ${labelBase}${layoutLabel}</div>
   </div>`;
 }
 
@@ -841,6 +889,7 @@ function renderCurrentSlide() {
   document.getElementById('prevBtn').disabled = cur === 0;
   document.getElementById('nextBtn').disabled = cur === slides.length - 1;
   renderThumbs();
+  renderVariantOptions();
   const active = document.getElementById(`th-${cur}`);
   if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
@@ -868,6 +917,38 @@ function setEditorStatus(type, message) {
   box.textContent = message;
 }
 
+function renderVariantOptions() {
+  const role = slideRole(slides[cur] || {});
+  const field = document.getElementById('variantField');
+  const grid = document.getElementById('variantGrid');
+  if (role !== 'content') {
+    field.style.display = 'none';
+    slideVariants = [];
+    return;
+  }
+
+  field.style.display = 'flex';
+  if (!slideVariants.length) {
+    grid.innerHTML = '<div class="variant-empty">시안을 만들면 여기에서 레이아웃별 비교가 나타납니다.</div>';
+    return;
+  }
+
+  grid.innerHTML = slideVariants.map((variant, index) => `
+    <div class="variant-card">
+      <div class="variant-card-head">
+        <div>
+          <div class="variant-card-title">${esc(variant.label || `시안 ${index + 1}`)}</div>
+          <div class="variant-card-meta">${esc(CONTENT_LAYOUT_LABELS[resolveContentLayout(variant.slide, resolvedTheme)] || '자동 추천')} · ${esc(variant.slide.image_mode || 'none')}</div>
+        </div>
+        <button type="button" class="tbtn" data-apply-variant="${escAttr(variant.id || '')}">이 시안 적용</button>
+      </div>
+      <div class="variant-preview">
+        <div class="variant-preview-inner">${renderSlide(variant.slide, resolvedTheme, cur + 1)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
 function parseLines(value) {
   return String(value || '')
     .split('\n')
@@ -878,8 +959,9 @@ function parseLines(value) {
 function fillEditor() {
   const slide = slides[cur] || {};
   const type = slide.type || 'content';
+  const role = slideRole(slide);
 
-  document.getElementById('slideTypeChip').textContent = TYPE_LABELS[type] || '내용 슬라이드';
+  document.getElementById('slideTypeChip').textContent = ROLE_LABELS[role] || TYPE_LABELS[type] || '내용 슬라이드';
   document.getElementById('titleInput').value = slide.title || '';
   document.getElementById('subtitleInput').value = slide.subtitle || '';
   document.getElementById('notesInput').value = slide.notes || '';
@@ -893,12 +975,12 @@ function fillEditor() {
   const listInput = document.getElementById('listInput');
 
   subtitleField.style.display = (type === 'title' || type === 'content') ? 'flex' : 'none';
-  layoutField.style.display = type === 'content' ? 'flex' : 'none';
-  sourcePagesField.style.display = type === 'content' ? 'flex' : 'none';
+  layoutField.style.display = (type === 'content' && role !== 'chapter') ? 'flex' : 'none';
+  sourcePagesField.style.display = (type === 'content' && role !== 'chapter') ? 'flex' : 'none';
   document.getElementById('layoutSelect').value = type === 'content'
     ? normalizeLayoutId(slide.layout || 'auto')
     : 'auto';
-  document.getElementById('sourcePagesInput').value = type === 'content' ? (slide.source_pages || '') : '';
+  document.getElementById('sourcePagesInput').value = (type === 'content' && role !== 'chapter') ? (slide.source_pages || '') : '';
 
   if (type === 'title') {
     listField.style.display = 'none';
@@ -915,8 +997,10 @@ function fillEditor() {
     listInput.value = (slide.points || []).join('\n');
   } else {
     listField.style.display = 'flex';
-    listLabel.textContent = '포인트';
-    listHelp.textContent = '한 줄마다 하나의 포인트로 저장됩니다.';
+    listLabel.textContent = role === 'chapter' ? '챕터 포인트' : '포인트';
+    listHelp.textContent = role === 'chapter'
+      ? '챕터 슬라이드는 짧은 소개 문구 1줄 정도만 권장합니다.'
+      : '한 줄마다 하나의 포인트로 저장됩니다.';
     listInput.value = (slide.points || []).join('\n');
   }
 }
@@ -925,6 +1009,7 @@ function captureEditorToSlides() {
   if (!slides.length) return;
   const current = { ...(slides[cur] || {}) };
   const type = current.type || 'content';
+  const role = slideRole(current);
 
   current.title = document.getElementById('titleInput').value.trim();
 
@@ -944,11 +1029,16 @@ function captureEditorToSlides() {
   } else if (type === 'content' || type === 'summary') {
     current.points = parseLines(document.getElementById('listInput').value);
     delete current.items;
-    if (type === 'content') {
+    if (type === 'content' && role !== 'chapter') {
       current.layout = normalizeLayoutId(document.getElementById('layoutSelect').value || 'auto');
       const sourcePages = document.getElementById('sourcePagesInput').value.trim();
       if (sourcePages) current.source_pages = sourcePages;
       else delete current.source_pages;
+    } else if (type === 'content' && role === 'chapter') {
+      current.layout = 'chapter';
+      current.image_mode = 'none';
+      current.image_relevance = 'none';
+      delete current.source_pages;
     } else {
       delete current.layout;
       delete current.source_pages;
@@ -976,9 +1066,80 @@ function goTo(index) {
   if (index < 0 || index >= slides.length) return;
   if (slides.length) captureEditorToSlides();
   cur = index;
+  slideVariants = [];
   renderCurrentSlide();
   fillEditor();
   setEditorStatus('', '');
+}
+
+async function requestVariants() {
+  if (!slides.length) return;
+  captureEditorToSlides();
+  const currentSlide = slides[cur] || {};
+  if (slideRole(currentSlide) !== 'content') return;
+
+  setEditorStatus('load', '현재 슬라이드 시안 3개를 생성하고 있습니다...');
+  document.getElementById('variantBtn').disabled = true;
+  try {
+    const response = await fetch(`/api/slides/${UID}/${cur}/variants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slide: currentSlide,
+        design,
+        assets,
+        page_plan: pagePlan,
+        variant_count: 3,
+      }),
+    });
+    const data = await readApiPayload(response, '슬라이드 시안 생성');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '시안 생성 실패'));
+    slideVariants = data.variants || [];
+    renderVariantOptions();
+    setEditorStatus('ok', '현재 슬라이드용 시안 3개를 준비했습니다.');
+  } catch (error) {
+    slideVariants = [];
+    renderVariantOptions();
+    setEditorStatus('err', '시안 생성 중 오류가 발생했습니다: ' + error.message);
+  } finally {
+    document.getElementById('variantBtn').disabled = false;
+  }
+}
+
+async function applyVariantById(variantId) {
+  const chosen = slideVariants.find(variant => String(variant.id || '') === String(variantId || ''));
+  if (!chosen) return;
+
+  setEditorStatus('load', '선택한 시안을 적용하고 있습니다...');
+  try {
+    const response = await fetch(`/api/slides/${UID}/${cur}/apply-variant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slide: chosen.slide,
+        design,
+        assets,
+        page_plan: pagePlan,
+        pdf_name: pdfName,
+        download_name: document.getElementById('downloadNameInput').value,
+      }),
+    });
+    const data = await readApiPayload(response, '시안 적용');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '시안 적용 실패'));
+
+    slides = data.slides || slides;
+    pagePlan = data.page_plan || pagePlan;
+    if (data.download_name) {
+      document.getElementById('downloadNameInput').value = data.download_name;
+    }
+    slideVariants = [];
+    renderCurrentSlide();
+    fillEditor();
+    syncBackLink();
+    setEditorStatus('ok', '선택한 시안을 현재 슬라이드에 적용했습니다.');
+  } catch (error) {
+    setEditorStatus('err', '시안 적용 중 오류가 발생했습니다: ' + error.message);
+  }
 }
 
 function rescale() {
@@ -1017,11 +1178,18 @@ async function saveSlides() {
     if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '저장 실패'));
 
     fileName = UID;
+    slides = data.slides || slides;
+    if (data.outline) {
+      // outline/quality are managed on the main screen; preview only keeps the latest slide deck.
+    }
+    pagePlan = data.page_plan || pagePlan;
+    slideVariants = [];
     if (data.download_name) {
       document.getElementById('downloadNameInput').value = data.download_name;
     }
     renderCurrentSlide();
     fillEditor();
+    syncBackLink();
     setEditorStatus('ok', '저장이 완료되었습니다. 최신 내용으로 PPT가 다시 생성되었습니다.');
   } catch (error) {
     setEditorStatus('err', '저장 중 오류가 발생했습니다: ' + error.message);
@@ -1064,6 +1232,7 @@ async function init() {
 document.getElementById('prevBtn').onclick = () => goTo(cur - 1);
 document.getElementById('nextBtn').onclick = () => goTo(cur + 1);
 document.getElementById('saveBtn').onclick = saveSlides;
+document.getElementById('variantBtn').onclick = requestVariants;
 document.getElementById('refreshBtn').onclick = () => {
   fillEditor();
   setEditorStatus('', '');
@@ -1073,6 +1242,11 @@ document.getElementById('dlBtn').onclick = () => {
   location.href = buildDownloadUrl(fileName, document.getElementById('downloadNameInput').value);
 };
 document.getElementById('downloadNameInput').addEventListener('input', syncBackLink);
+document.getElementById('variantGrid').addEventListener('click', e => {
+  const button = e.target.closest('[data-apply-variant]');
+  if (!button) return;
+  applyVariantById(button.getAttribute('data-apply-variant'));
+});
 
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;

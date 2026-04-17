@@ -34,6 +34,7 @@ from core.ppt_generator import (
 )
 from core.slide_quality import build_outline, build_quality_summary, review_slides
 from core.slide_enricher import attach_pdf_images_to_slides
+from core.slide_variants import generate_slide_variants
 
 app = Flask(__name__)
 # Keep API JSON ASCII-safe so Render/gunicorn never has to emit raw Unicode
@@ -318,7 +319,9 @@ def _is_truthy(value) -> bool:
 
 def _prepare_slide_package(slides_data: list[dict], assets: list[dict] | None, selected_pages: list[int] | None = None):
     reviewed = review_slides(slides_data, selected_pages=selected_pages)
-    prepared_slides = attach_pdf_images_to_slides(reviewed["slides"], assets)
+    image_enriched = attach_pdf_images_to_slides(reviewed["slides"], assets)
+    final_review = review_slides(image_enriched, selected_pages=selected_pages)
+    prepared_slides = attach_pdf_images_to_slides(final_review["slides"], assets)
     return {
         "slides": prepared_slides,
         "outline": build_outline(prepared_slides),
@@ -897,10 +900,111 @@ def api_update_slides(uid):
                 "preview_uid": uid,
                 "slide_count": len(prepared_slides),
                 "download_name": download_name,
+                "slides": prepared_slides,
+                "outline": prepared["outline"],
+                "quality": prepared["quality"],
+                "page_plan": page_plan,
             }
         )
     except Exception as exc:
         error_id = _record_exception("api_update_slides", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
+
+
+@app.route("/api/slides/<uid>/<int:slide_index>/variants", methods=["POST"])
+def api_slide_variants(uid, slide_index):
+    if not UID_RE.match(uid):
+        return jsonify({"error": "invalid uid"}), 400
+
+    payload = _load_saved_payload(uid)
+    if not payload:
+        return jsonify({"error": "not found"}), 404
+
+    slides = payload.get("slides", [])
+    if slide_index < 0 or slide_index >= len(slides):
+        return jsonify({"error": "invalid slide index"}), 400
+
+    body = request.get_json(silent=True) or {}
+    design = body.get("design", payload.get("design") or {"preset": "corporate"})
+    assets = body.get("assets", payload.get("assets", []))
+    page_plan = body.get("page_plan", payload.get("page_plan", {}))
+    try:
+        variant_count = int(body.get("variant_count", 3) or 3)
+    except (TypeError, ValueError):
+        variant_count = 3
+    variant_count = max(1, min(3, variant_count))
+
+    try:
+        variants = generate_slide_variants(
+            slides,
+            slide_index,
+            design,
+            assets,
+            selected_pages=page_plan.get("selected_pages"),
+            variant_count=variant_count,
+        )
+        return jsonify({"ok": True, "variants": variants})
+    except Exception as exc:
+        error_id = _record_exception("api_slide_variants", exc)
+        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
+
+
+@app.route("/api/slides/<uid>/<int:slide_index>/apply-variant", methods=["POST"])
+def api_apply_slide_variant(uid, slide_index):
+    if not UID_RE.match(uid):
+        return jsonify({"error": "invalid uid"}), 400
+
+    payload = _load_saved_payload(uid)
+    if not payload:
+        return jsonify({"error": "not found"}), 404
+
+    slides = payload.get("slides", [])
+    if slide_index < 0 or slide_index >= len(slides):
+        return jsonify({"error": "invalid slide index"}), 400
+
+    body = request.get_json(silent=True) or {}
+    variant_slide = body.get("slide")
+    if not isinstance(variant_slide, dict):
+        return jsonify({"error": "variant slide missing"}), 400
+
+    design = body.get("design", payload.get("design") or {"preset": "corporate"})
+    assets = body.get("assets", payload.get("assets", []))
+    page_plan = body.get("page_plan", payload.get("page_plan", {}))
+    pdf_name = body.get("pdf_name", payload.get("pdf_name", "강의교안"))
+    download_name = _sanitize_download_name(
+        body.get("download_name"),
+        payload.get("download_name") or _default_download_name(pdf_name),
+    )
+
+    try:
+        next_slides = list(slides)
+        next_slides[slide_index] = variant_slide
+        prepared = _prepare_slide_package(next_slides, assets, selected_pages=page_plan.get("selected_pages"))
+        updated_payload = {
+            **payload,
+            "slides": prepared["slides"],
+            "outline": prepared["outline"],
+            "quality": prepared["quality"],
+            "design": design,
+            "assets": assets,
+            "page_plan": page_plan,
+            "pdf_name": pdf_name,
+            "download_name": download_name,
+        }
+        _save_saved_payload(uid, updated_payload)
+        return jsonify(
+            {
+                "ok": True,
+                "preview_uid": uid,
+                "slides": prepared["slides"],
+                "outline": prepared["outline"],
+                "quality": prepared["quality"],
+                "download_name": download_name,
+                "page_plan": page_plan,
+            }
+        )
+    except Exception as exc:
+        error_id = _record_exception("api_apply_slide_variant", exc)
         return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
 

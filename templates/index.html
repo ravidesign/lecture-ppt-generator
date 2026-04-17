@@ -624,17 +624,27 @@ const LAYOUT_OPTIONS = [
   {id:'card',name:'카드',desc:'카드형 포인트 3열 배치',preview:'card'},
   {id:'highlight',name:'하이라이트',desc:'첫 포인트 강조 + 나머지 요약',preview:'highlight'},
   {id:'process',name:'프로세스',desc:'순서형 단계 설명에 적합한 흐름형 배치',preview:'process'},
-  {id:'compare',name:'비교',desc:'두 관점이나 전후 차이를 나눠서 전달',preview:'compare'}
+  {id:'compare',name:'비교',desc:'두 관점이나 전후 차이를 나눠서 전달',preview:'compare'},
+  {id:'image_left',name:'이미지 좌측',desc:'이미지를 크게 좌측에 배치하고 설명을 우측에 정리',preview:'split'},
+  {id:'image_top',name:'이미지 상단',desc:'이미지를 상단 hero로 크게 배치하고 아래에 핵심 정리',preview:'highlight'}
 ];
 const DEFAULT_TITLE_FONT_SIZE = 32;
 const DEFAULT_SUBTITLE_FONT_SIZE = 18;
 const DEFAULT_BODY_FONT_SIZE = 18;
 const CONTENT_KIND_LABELS = {
+  chapter: '챕터형',
   process: '프로세스형',
   compare: '비교형',
   case: '사례형',
   data: '데이터형',
   explain: '설명형',
+};
+const ROLE_LABELS = {
+  title: '제목',
+  toc: '목차',
+  content: '내용',
+  chapter: '챕터',
+  summary: '요약',
 };
 
 function createDefaultDesign() {
@@ -840,6 +850,10 @@ function normalizeDesignState(value) {
   design.footer_enabled = design.footer_enabled !== false;
   design.slide_number = design.slide_number !== false;
   return design;
+}
+
+function normalizeDesign(value) {
+  return normalizeDesignState(value);
 }
 
 function serializeDesign(value) {
@@ -1443,6 +1457,7 @@ function slideItems(slide) {
 }
 
 function inferClientKind(slide) {
+  if ((slide.role || '').trim() === 'chapter') return 'chapter';
   if ((slide.content_kind || '').trim()) return slide.content_kind;
   const layout = String(slide.layout || '').trim().toLowerCase();
   if (layout === 'process') return 'process';
@@ -1458,6 +1473,7 @@ function buildLocalOutline(slides) {
     subtitle: slide.subtitle || '',
     layout: slide.layout || '',
     content_kind: inferClientKind(slide),
+    role: slide.role || (((slide.type || 'content') === 'agenda') ? 'toc' : ((slide.type || 'content') === 'summary' ? 'summary' : ((slide.type || 'content') === 'title' ? 'title' : 'content'))),
     source_pages: slide.source_pages || '',
     point_count: slideItems(slide).length,
     has_image: !!slide.image_asset_name,
@@ -1534,10 +1550,11 @@ function renderQualitySummary() {
   const quality = S.quality || computeLocalQuality(S.slides || []);
   const cards = [
     {value: quality.content_count || 0, label: '콘텐츠 슬라이드'},
+    {value: quality.chapter_count || 0, label: '챕터 슬라이드'},
     {value: quality.process_count || 0, label: '프로세스형'},
     {value: quality.compare_count || 0, label: '비교형'},
     {value: quality.missing_sources || 0, label: '근거 페이지 미지정'},
-    {value: quality.missing_images || 0, label: '이미지 자동 연결 없음'},
+    {value: quality.hero_image_count || 0, label: '이미지 강조형'},
     {value: quality.dense_slides || 0, label: '텍스트 과밀 후보'},
   ];
 
@@ -1559,9 +1576,11 @@ function renderQualitySummary() {
 function renderSlideCards() {
   $('sg').innerHTML = (S.slides || []).map((slide, index) => {
     const type = slide.type || 'content';
+    const role = slide.role || (type === 'agenda' ? 'toc' : (type === 'summary' ? 'summary' : (type === 'title' ? 'title' : 'content')));
     const kind = inferClientKind(slide);
     const items = slideItems(slide);
-    const layoutBadge = type === 'content' ? `<span class="bge bt">${esc(layoutLabel(slide.layout || S.design.content_layout))}</span>` : '';
+    const roleBadge = `<span class="bge ${role === 'chapter' ? 'ba' : (BM[type] || 'bc')}">${esc(ROLE_LABELS[role] || BL[type] || '내용')}</span>`;
+    const layoutBadge = type === 'content' && role !== 'chapter' ? `<span class="bge bt">${esc(layoutLabel(slide.layout || S.design.content_layout))}</span>` : '';
     const sourceBadge = type === 'content' && slide.source_pages ? `<span class="bge ba">${esc(slide.source_pages)}</span>` : '';
     const kindBadge = type === 'content' ? `<span class="bge bs">${esc(CONTENT_KIND_LABELS[kind] || '설명형')}</span>` : '';
     const imageBadge = type === 'content' && slide.image_asset_name ? `<span class="bge bs" style="background:#FDE68A;color:#92400E">PDF 이미지 ${esc(slide.image_page || '')}</span>` : '';
@@ -1574,7 +1593,7 @@ function renderSlideCards() {
           <div class="sc-title-wrap">
             <div class="sc-t">${esc(slide.title || `${BL[type] || '슬라이드'} ${index + 1}`)}</div>
             <div class="sc-meta">
-              <span class="bge ${BM[type] || 'bc'}">${BL[type] || '내용'}</span>
+              ${roleBadge}
               ${kindBadge}
               ${layoutBadge}
               ${sourceBadge}
@@ -1591,6 +1610,7 @@ function renderSlideCards() {
 function renderOutlineEditor() {
   $('outlineEditor').innerHTML = (S.slides || []).map((slide, index) => {
     const type = slide.type || 'content';
+    const role = slide.role || (type === 'agenda' ? 'toc' : (type === 'summary' ? 'summary' : (type === 'title' ? 'title' : 'content')));
     const kind = inferClientKind(slide);
     const pointsText = slideItems(slide).join('\n');
     const subtitleValue = slide.subtitle || '';
@@ -1604,7 +1624,7 @@ function renderOutlineEditor() {
             <div style="min-width:0;flex:1">
               <div style="font-size:13px;font-weight:700;line-height:1.4">${esc(slide.title || `${BL[type] || '슬라이드'} ${index + 1}`)}</div>
               <div class="outline-meta">
-                <span class="chip-soft">${esc(BL[type] || '내용')}</span>
+                <span class="chip-soft">${esc(ROLE_LABELS[role] || BL[type] || '내용')}</span>
                 ${type === 'content' ? `<span class="chip-soft chip-kind">${esc(CONTENT_KIND_LABELS[kind] || '설명형')}</span>` : ''}
                 ${type === 'content' && slide.source_pages ? `<span class="chip-soft chip-src">${esc(slide.source_pages)}</span>` : ''}
                 ${hasImage ? `<span class="chip-soft chip-img">PDF 이미지 ${esc(slide.image_page || '')}</span>` : ''}
@@ -1629,7 +1649,7 @@ function renderOutlineEditor() {
           </div>
         ` : ''}
 
-        ${type === 'content' ? `
+        ${type === 'content' && role !== 'chapter' ? `
           <div class="mini-input-grid">
             <div class="field">
               <label>근거 페이지</label>
@@ -1650,7 +1670,7 @@ function renderOutlineEditor() {
 
         ${type !== 'title' ? `
           <div class="field">
-            <label>${type === 'agenda' ? '목차 항목' : '포인트'}</label>
+            <label>${type === 'agenda' ? '목차 항목' : (role === 'chapter' ? '챕터 포인트' : '포인트')}</label>
             <textarea class="txt-input mini-points" data-slide-field="points_text" data-index="${index}" placeholder="한 줄에 한 항목씩 입력하세요">${esc(pointsText)}</textarea>
           </div>
         ` : ''}
@@ -1662,6 +1682,7 @@ function renderOutlineEditor() {
 function updateSlideField(index, field, value) {
   const slide = { ...(S.slides[index] || {}) };
   const type = slide.type || 'content';
+  const role = slide.role || (type === 'agenda' ? 'toc' : (type === 'summary' ? 'summary' : (type === 'title' ? 'title' : 'content')));
   if (!slide || !S.slides[index]) return;
 
   if (field === 'title') {
@@ -1669,10 +1690,10 @@ function updateSlideField(index, field, value) {
   } else if (field === 'subtitle') {
     if (value.trim()) slide.subtitle = value;
     else delete slide.subtitle;
-  } else if (field === 'source_pages' && type === 'content') {
+  } else if (field === 'source_pages' && type === 'content' && role !== 'chapter') {
     if (value.trim()) slide.source_pages = value.trim();
     else delete slide.source_pages;
-  } else if (field === 'layout' && type === 'content') {
+  } else if (field === 'layout' && type === 'content' && role !== 'chapter') {
     slide.layout = value || 'auto';
     if (slide.layout === 'process') slide.content_kind = 'process';
     else if (slide.layout === 'compare') slide.content_kind = 'compare';
@@ -1914,7 +1935,7 @@ async function restorePreviewSession(uid) {
     nextState.quality = data.quality || computeLocalQuality(nextState.slides);
     nextState.page_plan = data.page_plan || null;
     nextState.assets = data.assets || [];
-    nextState.design = normalizeDesign(data.design || { preset: 'corporate' });
+    nextState.design = normalizeDesignState(data.design || { preset: 'corporate' });
     nextState.designDraft = cloneDesign(nextState.design);
     nextState.download_name = PAGE_PARAMS.get('name') || data.download_name || defaultDownloadName(pdfName);
     S = nextState;

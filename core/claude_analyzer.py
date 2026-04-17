@@ -22,7 +22,7 @@ Schema:
 [
   {"type":"title","title":"Lecture title","subtitle":"Subtitle"},
   {"type":"agenda","title":"Agenda","items":["Topic 1","Topic 2","Topic 3"]},
-  {"type":"content","title":"Slide title","subtitle":"Optional helper title","layout":"classic|split|card|highlight|process|compare|auto","source_pages":"12-14","points":["Point 1","Point 2","Point 3"],"notes":"Presenter notes"},
+  {"type":"content","role":"content|chapter","section_title":"Major section title","title":"Slide title","subtitle":"Optional helper title","layout":"classic|split|card|highlight|process|compare|image_left|image_top|auto","content_kind":"explain|process|compare|case|data","image_mode":"hero|support|none","source_pages":"12-14","points":["Point 1","Point 2","Point 3"],"notes":"Presenter notes"},
   {"type":"summary","title":"Key Summary","points":["Summary 1","Summary 2","Summary 3"]}
 ]
 
@@ -32,10 +32,15 @@ Rules:
 - Keep each point short and clear, usually 3 to 5 points per content slide.
 - Preserve the original document language in slide text.
 - Every content slide must include presenter notes of 1 to 2 concise sentences.
-- Every content slide must include both layout and source_pages fields.
+- Every content slide must include role, section_title, layout, content_kind, image_mode, and source_pages fields.
 - Mix layouts naturally instead of repeating the same layout everywhere.
-- classic: general explanation, split: section intro or case, card: short parallel items, highlight: one major takeaway, process: flow or steps, compare: contrast two perspectives.
-- Prefer pages with images, charts, or diagrams when assigning source_pages unless the material clearly suggests otherwise.
+- chapter slides are section-divider slides: title + short subtitle + at most one short point. Do not mix detailed bullets into chapter slides.
+- content slides are normal teaching slides.
+- classic: general explanation, split: section intro or case, card: short parallel items, highlight: one major takeaway, process: flow or steps, compare: contrast two perspectives, image_left/image_top: image-led slides where the image should be visually dominant.
+- Set image_mode=hero only when the source pages contain a truly relevant image or diagram worth making visually dominant.
+- Prefer pages with images, charts, or diagrams when assigning source_pages, but do not force an image onto every slide.
+- If a topic marks a new major section, emit a chapter slide before the detailed content slides for that section.
+- If a single idea would become too dense on one slide, split it into multiple content slides instead of cramming the text.
 - The document may have been summarized in chunks already, so merge repeated themes and produce one coherent lecture flow.
 """
 

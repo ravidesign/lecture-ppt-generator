@@ -313,7 +313,7 @@ def select_pages_by_text_hint(pdf_path: str, page_hint: str, max_pages: int = 10
     cluster_end = best_cluster[-1]
     start = max(1, cluster_start - 1)
     end = min(total_pages, cluster_end + 1)
-    focus_span = min(max_pages, max(12, min(28, 12 + len(tokens) * 6)))
+    focus_span = min(max_pages, max(8, min(22, 8 + len(tokens) * 4)))
 
     if (end - start + 1) > focus_span:
         best_window = (start, min(total_pages, start + focus_span - 1))
@@ -498,6 +498,14 @@ def extract_pdf_images(
             page = doc.load_page(page_number - 1)
             page_candidates = []
             page_area = max(float(page.rect.width * page.rect.height), 1.0)
+            page_text = " ".join((page.get_text("text") or "").split())
+            page_text_hint = page_text[:600]
+            page_heading = ""
+            for raw_line in page_text.splitlines():
+                line = raw_line.strip()
+                if len(line) >= 3:
+                    page_heading = line[:120]
+                    break
 
             for image_info in page.get_images(full=True):
                 xref = image_info[0]
@@ -611,6 +619,8 @@ def extract_pdf_images(
                         "height": candidate["height"],
                         "display_area": candidate["display_area"],
                         "coverage_ratio": candidate["coverage_ratio"],
+                        "page_heading": page_heading,
+                        "page_text_hint": page_text_hint,
                     }
                 )
 
