@@ -250,6 +250,32 @@ function apiErrorMessage(data, fallback) {
   return detail.length ? `${message} (${detail.join(', ')})` : message;
 }
 
+async function readApiPayload(response, fallback) {
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const rawText = await response.text();
+
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.parse(rawText);
+    } catch (_) {
+      const snippet = rawText.replace(/\s+/g, ' ').trim().slice(0, 160);
+      return {
+        error: `${fallback} 응답을 JSON으로 해석하지 못했습니다.${snippet ? ` 응답 일부: ${snippet}` : ''}`,
+      };
+    }
+  }
+
+  const compact = rawText.replace(/\s+/g, ' ').trim();
+  const snippet = compact.slice(0, 160);
+  const isHtml = compact.startsWith('<!DOCTYPE') || compact.startsWith('<html') || contentType.includes('text/html');
+  const statusLabel = response.status ? `HTTP ${response.status}` : '응답 상태 미상';
+  return {
+    error: isHtml
+      ? `${fallback} 중 서버가 JSON 대신 HTML 오류 페이지를 반환했습니다. ${statusLabel}${snippet ? ` · ${snippet}` : ''}`
+      : `${fallback} 중 예상하지 못한 응답을 받았습니다. ${statusLabel}${snippet ? ` · ${snippet}` : ''}`,
+  };
+}
+
 function cssFont(value) {
   return String(value || 'Malgun Gothic').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
@@ -846,7 +872,7 @@ async function saveSlides() {
         download_name: document.getElementById('downloadNameInput').value,
       }),
     });
-    const data = await response.json();
+    const data = await readApiPayload(response, '저장');
     if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '저장 실패'));
 
     fileName = UID;
@@ -867,7 +893,8 @@ async function init() {
   try {
     const res = await fetch(`/api/slides/${UID}`);
     if (!res.ok) throw new Error('not found');
-    const data = await res.json();
+    const data = await readApiPayload(res, '슬라이드 조회');
+    if (data.error) throw new Error(apiErrorMessage(data, '슬라이드 조회 실패'));
 
     slides = data.slides || [];
     design = normalizeDesign(data.design || (data.theme ? { preset: data.theme } : { preset: 'corporate' }));

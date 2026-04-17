@@ -702,6 +702,32 @@ function apiErrorMessage(data, fallback) {
   return detail.length ? `${message} (${detail.join(', ')})` : message;
 }
 
+async function readApiPayload(response, fallback) {
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const rawText = await response.text();
+
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.parse(rawText);
+    } catch (_) {
+      const snippet = rawText.replace(/\s+/g, ' ').trim().slice(0, 160);
+      return {
+        error: `${fallback} 응답을 JSON으로 해석하지 못했습니다.${snippet ? ` 응답 일부: ${snippet}` : ''}`,
+      };
+    }
+  }
+
+  const compact = rawText.replace(/\s+/g, ' ').trim();
+  const snippet = compact.slice(0, 160);
+  const isHtml = compact.startsWith('<!DOCTYPE') || compact.startsWith('<html') || contentType.includes('text/html');
+  const statusLabel = response.status ? `HTTP ${response.status}` : '응답 상태 미상';
+  return {
+    error: isHtml
+      ? `${fallback} 중 서버가 JSON 대신 HTML 오류 페이지를 반환했습니다. ${statusLabel}${snippet ? ` · ${snippet}` : ''}`
+      : `${fallback} 중 예상하지 못한 응답을 받았습니다. ${statusLabel}${snippet ? ` · ${snippet}` : ''}`,
+  };
+}
+
 function hideSt(id) {
   $(id).style.display = 'none';
 }
@@ -1077,12 +1103,12 @@ async function ensureDesignMeta() {
     ]);
 
     if (presetRes.ok) {
-      const presetData = await presetRes.json();
+      const presetData = await readApiPayload(presetRes, '프리셋 조회');
       if (Array.isArray(presetData) && presetData.length) presetMeta = presetData;
     }
 
     if (fontRes.ok) {
-      const fontData = await fontRes.json();
+      const fontData = await readApiPayload(fontRes, '폰트 조회');
       if (Array.isArray(fontData) && fontData.length) fontMeta = fontData;
     }
   } catch (_) {
@@ -1097,7 +1123,7 @@ async function ensureCapabilities() {
   try {
     const response = await fetch('/api/capabilities');
     if (!response.ok) throw new Error('capabilities');
-    const data = await response.json();
+    const data = await readApiPayload(response, '기능 확인');
     S.ocr_available = !!data.ocr_available;
   } catch (_) {
     S.ocr_available = false;
@@ -1304,7 +1330,7 @@ $('logoFile').addEventListener('change', async e => {
 
   try {
     const response = await fetch('/api/upload-logo', { method: 'POST', body: formData });
-    const data = await response.json();
+    const data = await readApiPayload(response, '로고 업로드');
     if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '업로드 실패'));
 
     S.designDraft.logo_uid = data.logo_uid;
@@ -1597,7 +1623,7 @@ $('ab').onclick = async () => {
 
   try {
     const response = await fetch('/api/analyze', { method: 'POST', body: formData });
-    const data = await response.json();
+    const data = await readApiPayload(response, '분석');
     if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '분석 실패'));
     S.slides = data.slides;
     S.outline = data.outline || [];
@@ -1670,7 +1696,7 @@ $('reviewBtn').onclick = async () => {
         page_plan: S.page_plan,
       }),
     });
-    const data = await response.json();
+    const data = await readApiPayload(response, '품질 점검');
     if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '품질 점검 실패'));
 
     S.slides = data.slides || S.slides;
@@ -1708,7 +1734,7 @@ $('gb').onclick = async () => {
         pdf_name: S.file.name,
       }),
     });
-    const data = await response.json();
+    const data = await readApiPayload(response, '생성');
     if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '생성 실패'));
 
     S.preview_uid = data.preview_uid;
@@ -1770,7 +1796,9 @@ $('rb').onclick = () => {
 
 async function loadH() {
   try {
-    const list = await (await fetch('/api/history')).json();
+    const historyResponse = await fetch('/api/history');
+    const list = await readApiPayload(historyResponse, '히스토리 조회');
+    if (!Array.isArray(list)) throw new Error(apiErrorMessage(list, '히스토리 조회 실패'));
     const el = $('hc');
     if (!list.length) {
       el.innerHTML = '<div class="he">아직 생성된 파일이 없습니다</div>';
