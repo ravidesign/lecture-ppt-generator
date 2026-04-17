@@ -34,7 +34,10 @@ from core.slide_quality import build_outline, build_quality_summary, review_slid
 from core.slide_enricher import attach_pdf_images_to_slides
 
 app = Flask(__name__)
-app.json.ensure_ascii = False
+# Keep API JSON ASCII-safe so Render/gunicorn never has to emit raw Unicode
+# while streaming large Korean slide payloads back to the browser.
+app.config["JSON_AS_ASCII"] = True
+app.json.ensure_ascii = True
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "outputs")
