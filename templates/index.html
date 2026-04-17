@@ -37,6 +37,20 @@ html,body{min-height:100%;font-family:'Noto Sans KR',sans-serif;background:var(-
 .page{display:none}
 .page.active{display:block}
 .card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:22px;box-shadow:var(--shadow)}
+.card.card-disabled{position:relative;background:#FBFCFE}
+.card.card-disabled::after{content:attr(data-lock-reason);position:absolute;right:16px;top:16px;font-size:11px;font-weight:700;color:var(--hint);background:rgba(255,255,255,.96);border:1px solid var(--border);padding:4px 9px;border-radius:999px;pointer-events:none;z-index:1}
+.card.card-disabled>.card-label{color:#B0B7C3}
+.card.card-disabled>:not(.card-label){opacity:.52}
+.card.card-disabled .btn,
+.card.card-disabled .btn-mini,
+.card.card-disabled .txt-input,
+.card.card-disabled .select-input,
+.card.card-disabled .toggle-row,
+.card.card-disabled .preset-card,
+.card.card-disabled .layout-card,
+.card.card-disabled .font-box,
+.card.card-disabled .logo-box,
+.card.card-disabled .counter{pointer-events:none}
 .card+.card{margin-top:12px}
 .card-label{font-size:11px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px}
 .drop{border:1.5px dashed var(--border2);border-radius:var(--r);padding:34px 20px;text-align:center;cursor:pointer;transition:all .2s}
@@ -265,7 +279,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
 <div class="wrap">
 
   <div class="top">
-    <div class="logo">PDF <span>→</span> 강의 교안 PPT</div>
+    <div class="logo">Teach-On</div>
     <div class="tabs">
       <div class="tab active" data-pg="generate">생성하기</div>
       <div class="tab" data-pg="history">히스토리</div>
@@ -285,7 +299,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         </div>
       </div>
 
-      <div class="card" id="oc" style="display:none">
+      <div class="card" id="oc">
         <div class="card-label">슬라이드 옵션</div>
         <div class="opts">
           <div>
@@ -307,7 +321,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         </div>
       </div>
 
-      <div class="card" id="dc" style="display:none">
+      <div class="card" id="dc">
         <div class="card-label">Design Settings</div>
         <div class="design-tabs">
           <button class="design-tab active" data-design-tab="concept">A 컨셉</button>
@@ -439,13 +453,13 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         </div>
       </div>
 
-      <div class="card" id="pc" style="display:none">
+      <div class="card" id="pc">
         <div class="card-label">페이지 범위 / 사용할 파트 (선택사항)</div>
         <input type="text" id="pr" class="txt-input" placeholder="예: 1-5, 8, 10-12 / 결론 부분 위주로 / 실험 결과 파트만 사용해줘">
         <div style="font-size:11px;color:var(--hint);margin-top:6px">숫자 범위뿐 아니라 텍스트 요청도 해석합니다. 예: 3장부터 8장, 결론 부분, 실습 예제 파트</div>
       </div>
 
-      <div class="card" id="scanCard" style="display:none">
+      <div class="card" id="scanCard">
         <div class="card-label">스캔 PDF 보정 (선택사항)</div>
         <div class="toggle-row">
           <div>
@@ -462,7 +476,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         </div>
       </div>
 
-      <div class="card" id="epc" style="display:none">
+      <div class="card" id="epc">
         <div class="card-label">추가 지시사항 (선택사항)</div>
         <textarea id="ep" class="txt-input" placeholder="예: 초급자 대상으로 쉽게 설명해주세요 / 각 슬라이드에 실제 예시를 포함해주세요 / 핵심 용어는 영어로 표기해주세요"></textarea>
       </div>
@@ -939,25 +953,57 @@ function buildDownloadUrl(uid, downloadName) {
 
 function updateSlideCountUI() {
   const auto = S.auto_slide_count;
+  const locked = !S.file;
   $('cv').textContent = auto ? 'AUTO' : String(S.cnt);
-  $('bm').disabled = auto;
-  $('bp').disabled = auto;
-  $('bm').style.cursor = auto ? 'not-allowed' : 'pointer';
-  $('bp').style.cursor = auto ? 'not-allowed' : 'pointer';
-  document.querySelector('.counter').classList.toggle('disabled', auto);
+  $('bm').disabled = locked || auto;
+  $('bp').disabled = locked || auto;
+  $('autoSlideCount').disabled = locked;
+  $('bm').style.cursor = (locked || auto) ? 'not-allowed' : 'pointer';
+  $('bp').style.cursor = (locked || auto) ? 'not-allowed' : 'pointer';
+  document.querySelector('.counter').classList.toggle('disabled', locked || auto);
   $('autoSlideCount').checked = auto;
+}
+
+function setCardLocked(cardId, locked, reason='') {
+  const card = $(cardId);
+  card.classList.toggle('card-disabled', locked);
+  if (locked && reason) card.setAttribute('data-lock-reason', reason);
+  else card.removeAttribute('data-lock-reason');
+  card.setAttribute('aria-disabled', locked ? 'true' : 'false');
+
+  card.querySelectorAll('input,select,textarea,button').forEach(control => {
+    if (cardId === 'scanCard' && control.id === 'enhanceScansToggle') return;
+    control.disabled = locked;
+  });
+}
+
+function syncUploadLockedState() {
+  const hasFile = !!S.file;
+  const uploadReason = 'PDF를 업로드하면 설정할 수 있습니다';
+
+  setCardLocked('oc', !hasFile, uploadReason);
+  setCardLocked('dc', !hasFile, uploadReason);
+  setCardLocked('pc', !hasFile, uploadReason);
+  setCardLocked('epc', !hasFile, uploadReason);
+  updateSlideCountUI();
 }
 
 function syncScanControls() {
   const toggle = $('enhanceScansToggle');
+  const hasFile = !!S.file;
   const available = !!S.ocr_available;
   if (!available) S.enhance_scans = false;
   toggle.checked = available ? S.enhance_scans : false;
-  toggle.disabled = !available;
+  toggle.disabled = !hasFile || !available;
   $('scanToggleText').textContent = toggle.checked ? 'ON' : 'OFF';
   $('scanSupportText').textContent = available
     ? '스캔본이나 이미지형 PDF일 때 OCR 보정 후 분석합니다.'
     : '현재 서버에는 OCRmyPDF/Tesseract가 없어 스캔 PDF 보정을 사용할 수 없습니다.';
+  setCardLocked(
+    'scanCard',
+    !hasFile || !available,
+    !hasFile ? 'PDF를 업로드하면 설정할 수 있습니다' : '현재 서버에서 OCR 보정을 사용할 수 없습니다'
+  );
 }
 
 function renderPresetGrid() {
@@ -1214,6 +1260,8 @@ async function ensureDesignMeta() {
   }
 
   syncDesignInputs();
+  syncUploadLockedState();
+  syncScanControls();
 }
 
 async function ensureCapabilities() {
@@ -1229,11 +1277,8 @@ async function ensureCapabilities() {
 }
 
 function showDesignCards() {
-  $('oc').style.display = 'block';
-  $('dc').style.display = 'block';
-  $('pc').style.display = 'block';
-  $('scanCard').style.display = S.ocr_available ? 'block' : 'none';
-  $('epc').style.display = 'block';
+  syncUploadLockedState();
+  syncScanControls();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -1277,7 +1322,6 @@ function setFile(file) {
   $('df').textContent = (file.size / 1024).toFixed(0) + ' KB';
   dz.classList.add('ok');
   showDesignCards();
-  syncScanControls();
   $('ab').disabled = false;
   hideSt('st1');
   $('downloadNameInput').value = S.download_name;
@@ -1897,11 +1941,6 @@ $('rb').onclick = () => {
   $('dt').textContent = '클릭하거나 파일을 드래그하세요';
   $('df').style.display = 'none';
   dz.classList.remove('ok');
-  $('oc').style.display = 'none';
-  $('dc').style.display = 'none';
-  $('pc').style.display = 'none';
-  $('scanCard').style.display = 'none';
-  $('epc').style.display = 'none';
   $('pr').value = '';
   $('ep').value = '';
   $('downloadNameInput').value = '';
@@ -1917,6 +1956,7 @@ $('rb').onclick = () => {
   hideSt('st2');
   syncDesignInputs();
   updateSlideCountUI();
+  syncUploadLockedState();
   syncScanControls();
 };
 
@@ -1989,6 +2029,7 @@ renderLayoutGrid();
 ensureDesignMeta();
 ensureCapabilities();
 updateSlideCountUI();
+syncUploadLockedState();
 
 const resumeUid = PAGE_PARAMS.get('resume');
 if (resumeUid) {
