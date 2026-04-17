@@ -5,6 +5,7 @@ import re
 import unicodedata
 
 import anthropic
+import httpx
 
 from core.pdf_parser import (
     chunk_pages,
@@ -120,7 +121,12 @@ def _build_client() -> anthropic.Anthropic:
     api_key = _sanitize_api_key(raw_key)
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is missing or invalid after sanitization.")
-    return anthropic.Anthropic(api_key=api_key)
+    http_client = httpx.Client(trust_env=False, timeout=120.0)
+    return anthropic.Anthropic(
+        api_key=api_key,
+        http_client=http_client,
+        max_retries=1,
+    )
 
 
 def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> str:
