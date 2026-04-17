@@ -653,12 +653,12 @@ def _image_orientation(image_asset: dict | None) -> str:
     return "square"
 
 
-def _image_is_prominent(image_asset: dict | None, minimum_coverage: float = 0.022) -> bool:
+def _image_is_prominent(image_asset: dict | None, minimum_coverage: float = 0.014) -> bool:
     if not image_asset:
         return False
     coverage = float(image_asset.get("coverage_ratio") or 0)
     display_area = float(image_asset.get("display_area") or 0)
-    return coverage >= minimum_coverage or display_area >= 42000
+    return coverage >= minimum_coverage or display_area >= 26000
 
 
 def _image_mode(data: dict) -> str:
@@ -858,7 +858,7 @@ def _content_slide_classic(prs, data, t, slide_index, media_assets=None):
     body_top = layout["body_top"]
     body_width = layout["body_width"]
     image_drawn = False
-    if _image_mode(data) == "support" and _image_is_prominent(image_asset):
+    if _image_mode(data) in {"support", "hero"} and _image_is_prominent(image_asset):
         orientation = _image_orientation(image_asset)
         if orientation == "portrait":
             image_drawn = _add_content_image(slide, image_asset, 8.54, max(body_top - 0.02, 1.5), 4.08, 4.92)
@@ -933,7 +933,7 @@ def _content_slide_split(prs, data, t, slide_index, media_assets=None):
     density = _body_metrics(t)
     bullet_start_y = 1.2
     bullet_width = 7.7
-    if _image_mode(data) == "support" and _image_is_prominent(image_asset):
+    if _image_mode(data) in {"support", "hero"} and _image_is_prominent(image_asset):
         orientation = _image_orientation(image_asset)
         if orientation == "portrait":
             if _add_content_image(slide, image_asset, 8.78, 0.96, 3.52, 4.8):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from copy import deepcopy
 
@@ -266,19 +267,21 @@ def _should_split_slide(slide: dict, density: dict) -> tuple[bool, str]:
 
     kind = slide.get("content_kind") or infer_content_kind(slide)
     image_mode = _normalize_image_mode(slide.get("image_mode"))
-    if density["very_dense"]:
+    if density["point_count"] <= 3 and density["total_chars"] < 220:
+        return False, ""
+    if density["very_dense"] and (density["point_count"] >= 5 or density["total_chars"] >= 320 or density["max_len"] >= 110):
         return True, "텍스트가 많아 한 장에 담기 어렵습니다."
-    if density["dense"] and density["point_count"] >= 5:
+    if density["point_count"] >= 6:
+        return True, "포인트 수가 많아 두 장 이상으로 나누는 편이 읽기 쉽습니다."
+    if density["dense"] and density["point_count"] >= 5 and density["total_chars"] >= 210:
         return True, "포인트 수가 많아 두 장으로 나누는 편이 읽기 쉽습니다."
-    if image_mode == "hero" and density["point_count"] >= 4:
-        return True, "이미지를 크게 보여주려면 내용을 나누는 편이 좋습니다."
-    if image_mode == "hero" and density["total_chars"] >= 160:
+    if image_mode == "hero" and density["point_count"] >= 5 and density["total_chars"] >= 220:
         return True, "이미지와 본문을 함께 크게 보여주기 위해 내용을 나누는 편이 좋습니다."
-    if kind == "process" and density["point_count"] >= 5:
+    if kind == "process" and density["point_count"] >= 5 and density["total_chars"] >= 190:
         return True, "단계형 설명이 길어져 두 장으로 나누는 편이 좋습니다."
-    if kind == "compare" and (density["total_chars"] >= 160 or density["point_count"] >= 4):
+    if kind == "compare" and density["point_count"] >= 5 and density["total_chars"] >= 180:
         return True, "비교 항목이 많아 두 장으로 나누는 편이 좋습니다."
-    if density["point_count"] >= 4 and density["max_len"] >= 78:
+    if density["point_count"] >= 4 and density["max_len"] >= 92 and density["total_chars"] >= 200:
         return True, "긴 문장이 많아 두 장으로 나누는 편이 읽기 쉽습니다."
     return False, ""
 
@@ -355,7 +358,15 @@ def _split_content_slide(slide: dict, density: dict) -> list[dict]:
         return [slide]
 
     chunk_size = 3 if density["very_dense"] or _normalize_image_mode(slide.get("image_mode")) == "hero" else 4
-    chunks = [points[i:i + chunk_size] for i in range(0, len(points), chunk_size)]
+    chunk_count = max(2, math.ceil(len(points) / chunk_size))
+    base_size = len(points) // chunk_count
+    remainder = len(points) % chunk_count
+    chunks = []
+    cursor = 0
+    for index in range(chunk_count):
+        take = base_size + (1 if index < remainder else 0)
+        chunks.append(points[cursor:cursor + take])
+        cursor += take
     if len(chunks) <= 1:
         return [slide]
 
@@ -382,15 +393,18 @@ def _layout_from_signal(slide: dict) -> str:
     if role == "chapter":
         return "chapter"
 
-    existing = _normalize_layout(slide.get("layout"))
-    density = _measure_density(slide)
-    kind = slide.get("content_kind") or infer_content_kind(slide)
     image_mode = _normalize_image_mode(slide.get("image_mode"))
     orientation = _clean_text(slide.get("image_orientation")).lower() or "square"
     has_image = bool(slide.get("image_asset_name"))
+    existing = _normalize_layout(slide.get("layout"))
+    density = _measure_density(slide)
+    kind = slide.get("content_kind") or infer_content_kind(slide)
 
     if existing not in {"auto", ""}:
-        layout = existing
+        if has_image and image_mode == "hero" and existing not in {"image_left", "image_top"}:
+            layout = "image_left" if orientation == "portrait" else "image_top"
+        else:
+            layout = existing
     elif kind == "process":
         if image_mode == "hero" and has_image and density["point_count"] <= 4:
             layout = "image_left" if orientation == "portrait" else "image_top"
@@ -433,15 +447,25 @@ def _apply_layout_safety(layout: str, slide: dict, density: dict) -> str:
         return "image_left" if orientation == "portrait" else "image_top"
     if layout == "compare" and has_image and image_mode == "support":
         return "classic"
+    if layout == "compare" and density["point_count"] <= 2:
+        return "classic"
     if layout == "process" and has_image and image_mode == "hero" and density["point_count"] >= 4:
         return "image_left" if orientation == "portrait" else "image_top"
     if layout == "process" and has_image and image_mode == "support":
+        return "classic"
+    if layout == "process" and density["point_count"] <= 2:
         return "classic"
     if layout == "highlight" and has_image and image_mode == "hero" and density["point_count"] >= 3:
         return "image_left" if orientation == "portrait" else "image_top"
     if layout == "highlight" and has_image and image_mode == "support":
         return "classic"
+    if layout == "classic" and has_image and image_mode == "hero":
+        return "image_left" if orientation == "portrait" else "image_top"
+    if layout == "card" and density["point_count"] <= 2:
+        return "classic"
     if layout == "card" and has_image:
+        return "classic"
+    if layout == "split" and density["point_count"] <= 2 and not _clean_text(slide.get("subtitle")):
         return "classic"
     if layout in {"image_left", "image_top"} and not has_image:
         return "classic"

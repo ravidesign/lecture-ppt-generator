@@ -582,11 +582,23 @@ function imageOrientation(asset) {
   return 'square';
 }
 
+function slidePointCount(slide) {
+  return (slide?.points || []).filter(point => String(point || '').trim()).length;
+}
+
+function slidePointChars(slide) {
+  return (slide?.points || []).reduce((total, point) => total + String(point || '').trim().length, 0);
+}
+
+function preferredImageLayout(asset) {
+  return imageOrientation(asset) === 'portrait' ? 'image_left' : 'image_top';
+}
+
 function shouldRenderSlideImage(asset, minCoverage = 0.022) {
   if (!asset) return false;
   const coverage = Number(asset.coverage_ratio || 0);
   const displayArea = Number(asset.display_area || 0);
-  return coverage >= minCoverage || displayArea >= 42000;
+  return coverage >= Math.min(minCoverage, 0.014) || displayArea >= 26000;
 }
 
 function adaptiveTextSize(text, base, min = 12, step = 22) {
@@ -715,7 +727,7 @@ function renderContentClassic(data, t, slideNum) {
   const header = renderHeader(data.title || '', t);
   const rows = renderBulletRows((data.points || []).slice(0, 5), t);
   const asset = slideImageAsset(data);
-  const showImage = slideImageMode(data) === 'support' && shouldRenderSlideImage(asset);
+  const showImage = ['support', 'hero'].includes(slideImageMode(data)) && shouldRenderSlideImage(asset);
   const orientation = imageOrientation(asset);
   let bodyRight = 34;
   let imageHtml = '';
@@ -743,7 +755,7 @@ function renderContentClassic(data, t, slideNum) {
 function renderContentSplit(data, t, slideNum) {
   const rows = renderBulletRows((data.points || []).slice(0, 5), t);
   const asset = slideImageAsset(data);
-  const showImage = slideImageMode(data) === 'support' && shouldRenderSlideImage(asset);
+  const showImage = ['support', 'hero'].includes(slideImageMode(data)) && shouldRenderSlideImage(asset);
   const orientation = imageOrientation(asset);
   let bodyTop = 86;
   let bodyRight = 34;
@@ -1084,7 +1096,7 @@ function renderImageCandidates() {
           <div class="candidate-actions">
             <span class="candidate-chip">관련성 ${esc(candidateRelevanceLabel(asset.score))}</span>
             <span class="candidate-chip">${esc(imageOrientation(asset))}</span>
-            <button type="button" class="tbtn" data-image-asset="${escAttr(`${asset.bundle_uid}/${asset.asset_name}`)}">이 이미지 고정</button>
+            <button type="button" class="tbtn" data-image-asset="${escAttr(`${asset.bundle_uid}/${asset.asset_name}`)}">이 이미지 적용</button>
           </div>
         </div>
       </div>
@@ -1215,6 +1227,7 @@ function setCurrentSlideImageChoice(mode, assetKey = '') {
   if (!slides.length) return;
   captureEditorToSlides();
   const slide = { ...(slides[cur] || {}) };
+  const currentLayout = normalizeLayoutId(slide.layout || 'auto');
   if (mode === 'manual_none') {
     delete slide.image_bundle_uid;
     delete slide.image_asset_name;
@@ -1223,15 +1236,26 @@ function setCurrentSlideImageChoice(mode, assetKey = '') {
     slide.image_relevance = 'none';
     slide.image_orientation = '';
     slide.image_choice_mode = 'manual_none';
+    if (['image_left', 'image_top'].includes(currentLayout)) {
+      slide.layout = slidePointCount(slide) <= 2 ? 'highlight' : 'classic';
+    }
   } else if (mode === 'auto') {
     const best = nearbyImageCandidates(slide).find(item => !item.active) || nearbyImageCandidates(slide)[0];
     if (best) {
+      const pointCount = slidePointCount(slide);
+      const totalChars = slidePointChars(slide);
       slide.image_bundle_uid = best.bundle_uid;
       slide.image_asset_name = best.asset_name;
       slide.image_page = best.page;
       slide.image_orientation = imageOrientation(best);
-      slide.image_mode = best.score >= 9 ? 'hero' : 'support';
+      const shouldHero = best.score >= 7 && pointCount <= 4 && totalChars <= 220;
+      slide.image_mode = shouldHero ? 'hero' : 'support';
       slide.image_relevance = best.score >= 9 ? 'high' : (best.score >= 5 ? 'medium' : 'low');
+      if (shouldHero) {
+        slide.layout = preferredImageLayout(best);
+      } else if (['image_left', 'image_top'].includes(currentLayout)) {
+        slide.layout = 'classic';
+      }
     } else {
       delete slide.image_bundle_uid;
       delete slide.image_asset_name;
@@ -1239,20 +1263,30 @@ function setCurrentSlideImageChoice(mode, assetKey = '') {
       slide.image_mode = 'none';
       slide.image_relevance = 'none';
       slide.image_orientation = '';
+      if (['image_left', 'image_top'].includes(currentLayout)) {
+        slide.layout = slidePointCount(slide) <= 2 ? 'highlight' : 'classic';
+      }
     }
     slide.image_choice_mode = 'auto';
   } else if (mode === 'manual') {
     const [bundleUid, assetName] = String(assetKey || '').split('/');
     const asset = (assets || []).find(item => item.bundle_uid === bundleUid && item.asset_name === assetName);
     if (!asset) return;
-    const pointCount = (slide.points || []).filter(Boolean).length;
+    const pointCount = slidePointCount(slide);
+    const totalChars = slidePointChars(slide);
     slide.image_bundle_uid = asset.bundle_uid;
     slide.image_asset_name = asset.asset_name;
     slide.image_page = asset.page;
     slide.image_orientation = imageOrientation(asset);
-    slide.image_mode = pointCount <= 4 ? 'hero' : (slide.image_mode === 'hero' ? 'hero' : 'support');
+    const shouldHero = pointCount <= 4 && totalChars <= 220;
+    slide.image_mode = shouldHero ? 'hero' : 'support';
     slide.image_relevance = 'manual';
     slide.image_choice_mode = 'manual';
+    if (shouldHero) {
+      slide.layout = preferredImageLayout(asset);
+    } else if (['image_left', 'image_top'].includes(currentLayout)) {
+      slide.layout = 'classic';
+    }
   }
   slides[cur] = slide;
   refreshCurrentEditor();

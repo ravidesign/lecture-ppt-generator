@@ -85,6 +85,10 @@ def _slide_keywords(slide: dict) -> set[str]:
     return words
 
 
+def _slide_text_total_chars(slide: dict) -> int:
+    return sum(len(str(point).strip()) for point in (slide.get("points", []) or []) if str(point).strip())
+
+
 def _asset_text(asset: dict) -> str:
     return " ".join(
         [
@@ -147,6 +151,10 @@ def _relevance_label(asset: dict, source_pages: list[int], slide_keywords: set[s
         return "high"
     if (exact or near) and quality_bucket <= 2 and overlap_score >= 1:
         return "medium"
+    if exact and quality_bucket == 0:
+        return "medium"
+    if exact and quality_bucket <= 1:
+        return "medium"
     if exact and quality_bucket == 0 and not slide_keywords:
         return "medium"
     if exact and quality_bucket <= 1 and overlap_score >= 1:
@@ -164,7 +172,10 @@ def _image_mode_for_slide(slide: dict, asset: dict | None, relevance: str) -> st
 
     kind = str(slide.get("content_kind") or "").lower()
     point_count = len(slide.get("points", []) or [])
+    total_chars = _slide_text_total_chars(slide)
     quality_bucket = _asset_quality_bucket(asset)
+    if relevance in {"low", "medium", "high"} and quality_bucket <= 1 and point_count <= 2 and total_chars <= 140:
+        return "hero"
     if relevance == "high" and quality_bucket <= 1:
         return "hero"
     if relevance == "medium" and quality_bucket == 0 and point_count <= 4:
@@ -175,7 +186,30 @@ def _image_mode_for_slide(slide: dict, asset: dict | None, relevance: str) -> st
         return "hero"
     if relevance == "medium" and kind in {"compare", "process", "data"}:
         return "support"
+    if relevance == "low" and quality_bucket <= 1 and point_count <= 3 and total_chars <= 180:
+        return "support"
     return "support"
+
+
+def _should_keep_low_relevance_asset(slide: dict, asset: dict | None, source_pages: list[int], slide_keywords: set[str]) -> bool:
+    if not asset:
+        return False
+
+    asset_page = int(asset.get("page") or 0)
+    quality_bucket = _asset_quality_bucket(asset)
+    point_count = len(slide.get("points", []) or [])
+    total_chars = _slide_text_total_chars(slide)
+    exact = asset_page in source_pages if source_pages else False
+    near = min((abs(asset_page - page) for page in source_pages), default=99) <= 1 if source_pages else False
+    overlap_score = _asset_text_score(asset, slide_keywords)
+
+    if exact and quality_bucket <= 1 and point_count <= 3 and total_chars <= 180:
+        return True
+    if exact and quality_bucket == 0 and point_count <= 4 and total_chars <= 220:
+        return True
+    if near and quality_bucket == 0 and point_count <= 2 and overlap_score >= 1:
+        return True
+    return False
 
 
 def _asset_score(asset: dict, source_pages: list[int], fallback_index: int, slide_keywords: set[str]) -> tuple[int, int, int, int, int]:
@@ -285,7 +319,11 @@ def attach_pdf_images_to_slides(slides_data: list[dict], media_assets: list[dict
             chosen_asset = ranked_assets[0] if ranked_assets else None
             relevance = _relevance_label(chosen_asset, source_pages, slide_keywords) if chosen_asset else "none"
 
-        if not chosen_asset or relevance in {"none", "low"}:
+        if relevance == "low" and _should_keep_low_relevance_asset(slide, chosen_asset, source_pages, slide_keywords):
+            if int(chosen_asset.get("page") or 0) in source_pages and _asset_quality_bucket(chosen_asset) <= 1:
+                relevance = "medium"
+
+        if not chosen_asset or relevance == "none":
             _clear_slide_image(slide)
             slide["image_choice_mode"] = "auto"
             continue

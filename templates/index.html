@@ -1087,12 +1087,12 @@ function syncScanControls() {
   toggle.disabled = !hasFile || !available;
   $('scanToggleText').textContent = toggle.checked ? 'ON' : 'OFF';
   $('scanSupportText').textContent = available
-    ? '스캔본이나 이미지형 PDF일 때 OCR 보정 후 분석합니다.'
-    : '현재 서버에는 OCRmyPDF/Tesseract가 없어 스캔 PDF 보정을 사용할 수 없습니다.';
+    ? '스캔본이나 이미지형 PDF일 때 OCR/가독성 보정 후 분석합니다.'
+    : '현재 서버에서 스캔 PDF 보정 기능을 사용할 수 없습니다.';
   setCardLocked(
     'scanCard',
     !hasFile || !available,
-    !hasFile ? 'PDF를 업로드하면 설정할 수 있습니다' : '현재 서버에서 OCR 보정을 사용할 수 없습니다'
+    !hasFile ? 'PDF를 업로드하면 설정할 수 있습니다' : '현재 서버에서 스캔 PDF 보정을 사용할 수 없습니다'
   );
 }
 

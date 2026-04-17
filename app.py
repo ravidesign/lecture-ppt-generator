@@ -20,6 +20,8 @@ os.environ.setdefault("LC_ALL", "C.UTF-8")
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
+import fitz  # PyMuPDF
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 load_dotenv()
 
@@ -69,7 +71,8 @@ os.makedirs(ANALYZE_JOB_DIR, exist_ok=True)
 ERROR_LOG_FILE = os.path.join(OUTPUT_DIR, "server_errors.log")
 OCRMYPDF_BIN = shutil.which("ocrmypdf")
 TESSERACT_BIN = shutil.which("tesseract")
-OCR_AVAILABLE = bool(OCRMYPDF_BIN and TESSERACT_BIN)
+INTERNAL_SCAN_ENHANCER_AVAILABLE = True
+OCR_AVAILABLE = bool(OCRMYPDF_BIN and TESSERACT_BIN) or INTERNAL_SCAN_ENHANCER_AVAILABLE
 
 
 def _as_utf8_stream(stream):
@@ -374,30 +377,70 @@ def _candidate_asset_pages(slides_data: list[dict], selected_pages: list[int] | 
 
 
 def _enhance_pdf_for_scans(pdf_path: str, job_uid: str) -> tuple[str, bool, str | None]:
-    if not OCR_AVAILABLE:
-        return pdf_path, False, "OCR 도구가 설치되어 있지 않습니다."
-
     enhanced_path = os.path.join(UPLOAD_DIR, f"{job_uid}_ocr.pdf")
-    command = [
-        OCRMYPDF_BIN,
-        "--skip-text",
-        "--force-ocr",
-        "--optimize",
-        "0",
-        "--quiet",
-        pdf_path,
-        enhanced_path,
-    ]
+    if OCRMYPDF_BIN and TESSERACT_BIN:
+        command = [
+            OCRMYPDF_BIN,
+            "--skip-text",
+            "--force-ocr",
+            "--optimize",
+            "0",
+            "--quiet",
+            pdf_path,
+            enhanced_path,
+        ]
 
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            if os.path.exists(enhanced_path):
+                return enhanced_path, True, None
+            return pdf_path, False, "OCR 결과 파일을 찾지 못했습니다."
+        except Exception as exc:
+            if os.path.exists(enhanced_path):
+                os.remove(enhanced_path)
+            return pdf_path, False, str(exc)
+
+    if not INTERNAL_SCAN_ENHANCER_AVAILABLE:
+        return pdf_path, False, "OCR 또는 스캔 보정 엔진을 사용할 수 없습니다."
+
+    rendered_pages = []
+    doc = fitz.open(pdf_path)
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        for page_index in range(len(doc)):
+            page = doc.load_page(page_index)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5), alpha=False)
+            with Image.open(io.BytesIO(pix.tobytes("png"))) as source_img:
+                enhanced = ImageOps.autocontrast(source_img.convert("L"), cutoff=1)
+                enhanced = ImageEnhance.Contrast(enhanced).enhance(1.45)
+                enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.4)
+                enhanced = enhanced.filter(ImageFilter.SHARPEN).convert("RGB")
+                rendered_pages.append(enhanced.copy())
+
+        if not rendered_pages:
+            return pdf_path, False, "보정할 PDF 페이지를 찾지 못했습니다."
+
+        first_page, *remaining_pages = rendered_pages
+        first_page.save(
+            enhanced_path,
+            "PDF",
+            resolution=200.0,
+            save_all=True,
+            append_images=remaining_pages,
+        )
         if os.path.exists(enhanced_path):
             return enhanced_path, True, None
-        return pdf_path, False, "OCR 결과 파일을 찾지 못했습니다."
+        return pdf_path, False, "내장 스캔 보정 PDF를 생성하지 못했습니다."
     except Exception as exc:
         if os.path.exists(enhanced_path):
             os.remove(enhanced_path)
         return pdf_path, False, str(exc)
+    finally:
+        doc.close()
+        for image in rendered_pages:
+            try:
+                image.close()
+            except Exception:
+                pass
 
 
 def _run_analysis_pipeline(
@@ -470,12 +513,11 @@ def _run_analysis_pipeline(
             )
 
         notify("attach_pdf_images", "슬라이드에 이미지를 연결하고 있습니다...")
-        prepared_slides = attach_pdf_images_to_slides(reviewed["slides"], assets)
-        prepared = {
-            "slides": prepared_slides,
-            "outline": build_outline(prepared_slides),
-            "quality": build_quality_summary(prepared_slides),
-        }
+        prepared = _prepare_slide_package(
+            reviewed["slides"],
+            assets,
+            selected_pages=page_plan["selected_pages"],
+        )
 
         notify("build_response", "분석 결과를 정리하고 있습니다...")
         return {
