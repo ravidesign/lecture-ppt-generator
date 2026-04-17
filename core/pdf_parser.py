@@ -330,7 +330,8 @@ def extract_pdf_images(
     seen_hashes = set()
 
     try:
-        pages = _normalize_pages(page_numbers or list(range(1, len(doc) + 1)), len(doc))
+        target_pages = list(range(1, len(doc) + 1)) if page_numbers is None else page_numbers
+        pages = _normalize_pages(target_pages, len(doc))
         for page_number in pages:
             page = doc.load_page(page_number - 1)
             page_candidates = []

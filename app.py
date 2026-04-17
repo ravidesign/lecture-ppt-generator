@@ -23,7 +23,7 @@ load_dotenv()
 
 from core.claude_analyzer import analyze_pdf
 from core.history import add_record, get_history
-from core.pdf_parser import extract_pdf_images, resolve_page_selection
+from core.pdf_parser import extract_pdf_images, parse_page_range, resolve_page_selection
 from core.ppt_generator import (
     LEGACY_THEME_PRESET_MAP,
     PRESETS,
@@ -276,6 +276,45 @@ def _prepare_slide_package(slides_data: list[dict], assets: list[dict] | None, s
     }
 
 
+def _candidate_asset_pages(slides_data: list[dict], selected_pages: list[int] | None, radius: int = 1, max_pages: int = 48) -> list[int]:
+    selected = sorted({int(page) for page in (selected_pages or []) if int(page) >= 1})
+    if not selected:
+        return []
+
+    max_page = max(selected)
+    allowed = set(selected)
+    picked = []
+    seen = set()
+
+    for slide in slides_data or []:
+        if slide.get("type", "content") != "content":
+            continue
+
+        source_pages = parse_page_range(slide.get("source_pages", ""), max_page)
+        if not source_pages:
+            continue
+
+        for page in source_pages:
+            for candidate in range(page - radius, page + radius + 1):
+                if candidate not in allowed or candidate in seen:
+                    continue
+                seen.add(candidate)
+                picked.append(candidate)
+                if len(picked) >= max_pages:
+                    return picked
+
+    if picked:
+        return picked
+
+    # Fallback: evenly sample from the selected range instead of scanning the whole document.
+    if len(selected) <= max_pages:
+        return selected
+
+    step = max(1, len(selected) // max_pages)
+    sampled = selected[::step][:max_pages]
+    return sampled or selected[:max_pages]
+
+
 def _enhance_pdf_for_scans(pdf_path: str, job_uid: str) -> tuple[str, bool, str | None]:
     if not OCR_AVAILABLE:
         return pdf_path, False, "OCR 도구가 설치되어 있지 않습니다."
@@ -348,13 +387,6 @@ def api_analyze():
 
         analyze_stage = "resolve_page_selection"
         page_plan = resolve_page_selection(analysis_pdf_path, page_range or None, max_pages_per_chunk=100)
-        analyze_stage = "extract_pdf_images"
-        assets = extract_pdf_images(
-            analysis_pdf_path,
-            page_plan["selected_pages"],
-            _asset_bundle_dir(uid),
-            bundle_uid=uid,
-        )
         try:
             analyze_stage = "analyze_pdf_primary"
             slides_data = analyze_pdf(
@@ -372,8 +404,26 @@ def api_analyze():
                 extra_prompt=extra_prompt or None,
                 ascii_safe_mode=True,
             )
-        analyze_stage = "prepare_slide_package"
-        prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan["selected_pages"])
+        analyze_stage = "review_slides"
+        reviewed = review_slides(slides_data, selected_pages=page_plan["selected_pages"])
+        analyze_stage = "collect_asset_pages"
+        asset_pages = _candidate_asset_pages(reviewed["slides"], page_plan["selected_pages"])
+        analyze_stage = "extract_pdf_images"
+        assets = []
+        if asset_pages:
+            assets = extract_pdf_images(
+                analysis_pdf_path,
+                asset_pages,
+                _asset_bundle_dir(uid),
+                bundle_uid=uid,
+            )
+        analyze_stage = "attach_pdf_images"
+        prepared_slides = attach_pdf_images_to_slides(reviewed["slides"], assets)
+        prepared = {
+            "slides": prepared_slides,
+            "outline": build_outline(prepared_slides),
+            "quality": build_quality_summary(prepared_slides),
+        }
         analyze_stage = "build_response"
         return _json_response(
             {

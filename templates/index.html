@@ -702,6 +702,17 @@ function apiErrorMessage(data, fallback) {
   return detail.length ? `${message} (${detail.join(', ')})` : message;
 }
 
+function shouldRetryApiFailure(response, data) {
+  const status = Number(response?.status || 0);
+  if ([500, 502, 503, 504].includes(status)) return true;
+  const text = String(data?.error || '').toLowerCase();
+  return text.includes('html 오류 페이지') || text.includes('internal server error');
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function readApiPayload(response, fallback) {
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
   const rawText = await response.text();
@@ -1622,9 +1633,30 @@ $('ab').onclick = async () => {
   formData.append('extra_prompt', $('ep').value.trim());
 
   try {
-    const response = await fetch('/api/analyze', { method: 'POST', body: formData });
-    const data = await readApiPayload(response, '분석');
-    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '분석 실패'));
+    let data = null;
+    let response = null;
+    let finalError = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      if (attempt > 1) {
+        setSt('st1', 'load', `분석 서버 응답이 불안정해 재시도 중입니다... (${attempt}/2)`);
+        await wait(1500);
+      }
+
+      response = await fetch('/api/analyze', { method: 'POST', body: formData });
+      data = await readApiPayload(response, '분석');
+
+      if (response.ok && !data.error) {
+        finalError = null;
+        break;
+      }
+
+      finalError = new Error(apiErrorMessage(data, '분석 실패'));
+      if (!shouldRetryApiFailure(response, data) || attempt === 2) break;
+    }
+
+    if (finalError) throw finalError;
+
     S.slides = data.slides;
     S.outline = data.outline || [];
     S.quality = data.quality || null;
