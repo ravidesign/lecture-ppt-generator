@@ -41,8 +41,18 @@ app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = True
 app.json.ensure_ascii = True
 
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "outputs")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _resolve_storage_dir(raw_value: str | None, default_name: str) -> str:
+    chosen = str(raw_value or "").strip() or default_name
+    if os.path.isabs(chosen):
+        return chosen
+    return os.path.join(BASE_DIR, chosen)
+
+
+UPLOAD_DIR = _resolve_storage_dir(os.getenv("UPLOAD_DIR"), "uploads")
+OUTPUT_DIR = _resolve_storage_dir(os.getenv("OUTPUT_DIR"), "outputs")
 ANALYZE_JOB_DIR = os.path.join(OUTPUT_DIR, "analyze_jobs")
 UID_RE = re.compile(r"^[a-f0-9]{8}$")
 INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
@@ -228,6 +238,10 @@ def _resolve_media_assets(assets: list[dict] | None) -> list[dict]:
 
 def _slides_json_path(uid: str) -> str:
     return os.path.join(OUTPUT_DIR, f"{uid}_slides.json")
+
+
+def _uploaded_pdf_path(uid: str) -> str:
+    return os.path.join(UPLOAD_DIR, f"{uid}.pdf")
 
 
 def _analyze_job_path(job_id: str) -> str:
@@ -599,7 +613,7 @@ def api_analyze_start():
     extra_prompt = request.form.get("extra_prompt", "").strip()
 
     job_id = uuid.uuid4().hex[:8]
-    pdf_path = os.path.join(UPLOAD_DIR, f"{job_id}.pdf")
+    pdf_path = _uploaded_pdf_path(job_id)
     file.save(pdf_path)
 
     _save_analyze_job(
@@ -639,6 +653,15 @@ def api_analyze_status(job_id):
 
     payload = _load_analyze_job(job_id)
     if not payload:
+        if os.path.exists(_uploaded_pdf_path(job_id)):
+            return _json_response(
+                {
+                    "job_id": job_id,
+                    "status": "running",
+                    "stage": "recovering",
+                    "message": "분석 작업 정보를 다시 불러오는 중입니다...",
+                }
+            )
         return _json_response({"error": "분석 작업을 찾을 수 없습니다."}, status=404)
 
     return _json_response(payload)

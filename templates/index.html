@@ -715,11 +715,40 @@ function wait(ms) {
 
 async function pollAnalyzeJob(jobId) {
   const startedAt = Date.now();
+  let retryableFailureStartedAt = null;
+  let missingJobStartedAt = null;
 
   while (Date.now() - startedAt < 1000 * 60 * 12) {
-    const response = await fetch(`/api/analyze/status/${encodeURIComponent(jobId)}`);
+    const response = await fetch(`/api/analyze/status/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
     const data = await readApiPayload(response, '분석 상태 확인');
-    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '분석 상태 확인 실패'));
+    if (!response.ok || data.error) {
+      const message = apiErrorMessage(data, '분석 상태 확인 실패');
+      const retryableServerFailure = shouldRetryApiFailure(response, data);
+      const missingJob = response.status === 404 && String(data?.error || '').includes('분석 작업을 찾을 수 없습니다');
+
+      if (missingJob) {
+        missingJobStartedAt = missingJobStartedAt || Date.now();
+        if (Date.now() - missingJobStartedAt < 1000 * 45) {
+          setSt('st1', 'load', '분석 작업 정보를 다시 불러오는 중입니다...');
+          await wait(1500);
+          continue;
+        }
+      }
+
+      if (retryableServerFailure) {
+        retryableFailureStartedAt = retryableFailureStartedAt || Date.now();
+        if (Date.now() - retryableFailureStartedAt < 1000 * 45) {
+          setSt('st1', 'load', '서버 응답이 잠시 불안정합니다. 분석 상태를 다시 확인하고 있습니다...');
+          await wait(2000);
+          continue;
+        }
+      }
+
+      throw new Error(message);
+    }
+
+    retryableFailureStartedAt = null;
+    missingJobStartedAt = null;
 
     if (data.status === 'completed' && data.result) {
       return data.result;
@@ -1657,7 +1686,7 @@ $('ab').onclick = async () => {
   formData.append('extra_prompt', $('ep').value.trim());
 
   try {
-    const startResponse = await fetch('/api/analyze/start', { method: 'POST', body: formData });
+    const startResponse = await fetch('/api/analyze/start', { method: 'POST', body: formData, cache: 'no-store' });
     const startData = await readApiPayload(startResponse, '분석 시작');
     if (!startResponse.ok || startData.error) throw new Error(apiErrorMessage(startData, '분석 시작 실패'));
     if (!startData.job_id) throw new Error('분석 작업 ID를 받지 못했습니다.');
