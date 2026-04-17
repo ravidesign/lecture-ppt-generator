@@ -98,7 +98,7 @@ select.editor-input{appearance:none;-webkit-appearance:none;padding-right:40px;b
       </div>
       <div class="tb-right">
         <input type="text" id="downloadNameInput" class="download-input" placeholder="다운로드 파일명">
-        <a href="/" class="tbtn">← 돌아가기</a>
+        <a href="/" class="tbtn" id="backBtn">← 돌아가기</a>
         <button type="button" class="tbtn tbtn-dl" id="dlBtn">⬇ 다운로드</button>
       </div>
     </div>
@@ -445,11 +445,11 @@ function imageOrientation(asset) {
   return 'square';
 }
 
-function shouldRenderSlideImage(asset, minCoverage = 0.018) {
+function shouldRenderSlideImage(asset, minCoverage = 0.022) {
   if (!asset) return false;
   const coverage = Number(asset.coverage_ratio || 0);
   const displayArea = Number(asset.display_area || 0);
-  return coverage >= minCoverage || displayArea >= 24000;
+  return coverage >= minCoverage || displayArea >= 42000;
 }
 
 function adaptiveTextSize(text, base, min = 12, step = 22) {
@@ -462,10 +462,9 @@ function renderSlideImage(data, left, top, width, height, options = {}) {
   const url = slideImageUrl(data);
   const asset = slideImageAsset(data);
   if (!url || !shouldRenderSlideImage(asset, options.minCoverage || 0.018)) return '';
-  const padding = options.padding ?? 8;
   const fit = options.fit || 'contain';
-  return `<div style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;border-radius:14px;background:#F7F9FC;border:1px solid #DEE5F0;padding:${padding}px;overflow:hidden">
-    <img src="${url}" style="width:100%;height:100%;object-fit:${fit};border-radius:10px" onerror="this.parentElement.style.display='none'">
+  return `<div style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+    <img src="${url}" style="width:100%;height:100%;object-fit:${fit}" onerror="this.parentElement.style.display='none'">
   </div>`;
 }
 
@@ -572,14 +571,14 @@ function renderContentClassic(data, t, slideNum) {
   let imageHtml = '';
   if (showImage) {
     if (orientation === 'portrait') {
-      bodyRight = 260;
-      imageHtml = renderSlideImage(data, 732, Math.max(header.bodyTop, 108), 178, 286);
+      bodyRight = 314;
+      imageHtml = renderSlideImage(data, 652, Math.max(header.bodyTop - 2, 104), 248, 314);
     } else if (orientation === 'square') {
-      bodyRight = 286;
-      imageHtml = renderSlideImage(data, 704, Math.max(header.bodyTop, 110), 210, 210);
+      bodyRight = 332;
+      imageHtml = renderSlideImage(data, 632, Math.max(header.bodyTop, 108), 264, 254);
     } else {
-      bodyRight = 286;
-      imageHtml = renderSlideImage(data, 700, Math.max(header.bodyTop, 112), 220, 168);
+      bodyRight = 354;
+      imageHtml = renderSlideImage(data, 606, Math.max(header.bodyTop + 10, 118), 296, 206);
     }
   }
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
@@ -601,12 +600,13 @@ function renderContentSplit(data, t, slideNum) {
   let imageHtml = '';
   if (showImage) {
     if (orientation === 'portrait') {
-      bodyRight = 268;
-      bodyTop = 86;
-      imageHtml = renderSlideImage(data, 736, 88, 170, 260);
+      bodyRight = 302;
+      bodyTop = 84;
+      imageHtml = renderSlideImage(data, 668, 84, 244, 316);
     } else {
-      bodyTop = 238;
-      imageHtml = renderSlideImage(data, 362, 88, 540, 132);
+      bodyTop = 276;
+      bodyRight = 34;
+      imageHtml = renderSlideImage(data, 356, 76, 556, 168);
     }
   }
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
@@ -633,12 +633,12 @@ function renderContentCard(data, t, slideNum) {
   let imageHtml = '';
   if (showImage) {
     if (orientation === 'portrait') {
-      gridRight = 270;
+      gridRight = 324;
       gridCols = 'repeat(2,minmax(0,1fr))';
-      imageHtml = renderSlideImage(data, 732, gridTop, 176, 260);
+      imageHtml = renderSlideImage(data, 650, gridTop, 250, 300);
     } else {
-      imageHtml = renderSlideImage(data, 36, gridTop, 888, 126);
-      gridTop += 144;
+      imageHtml = renderSlideImage(data, 36, gridTop, 888, 188);
+      gridTop += 206;
     }
   }
   const cards = (data.points || []).slice(0, 5).map(point => `
@@ -671,11 +671,11 @@ function renderContentHighlight(data, t, slideNum) {
   let imageHtml = '';
   if (showImage) {
     if (orientation === 'portrait') {
-      leadRight = 286;
-      imageHtml = renderSlideImage(data, 736, top, 174, 224);
+      leadRight = 316;
+      imageHtml = renderSlideImage(data, 650, top - 6, 250, 248);
     } else {
-      leadRight = 282;
-      imageHtml = renderSlideImage(data, 682, top, 242, 144);
+      leadRight = 360;
+      imageHtml = renderSlideImage(data, 594, top - 4, 318, 174);
     }
   }
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
@@ -706,11 +706,11 @@ function renderContentProcess(data, t, slideNum) {
   let imageHtml = '';
   if (showImage) {
     if (orientation === 'portrait') {
-      rowWidthMax = 646;
-      imageHtml = renderSlideImage(data, 752, top, 154, 214);
+      rowWidthMax = 566;
+      imageHtml = renderSlideImage(data, 662, top + 10, 250, 292);
     } else {
-      rowWidthMax = 654;
-      imageHtml = renderSlideImage(data, 704, top, 206, 114);
+      rowWidthMax = 550;
+      imageHtml = renderSlideImage(data, 624, top + 8, 288, 168);
     }
   }
   const stepWidth = Math.min((rowWidthMax - ((steps.length - 1) * 16)) / Math.max(steps.length, 1), 198);
@@ -730,7 +730,7 @@ function renderContentProcess(data, t, slideNum) {
     ${header.html}
     ${stepHtml}
     ${imageHtml}
-    <div style="position:absolute;left:48px;right:${showImage ? 286 : 48}px;top:${top + 194}px;bottom:44px;display:grid;gap:12px;align-content:start">${extra}</div>
+    <div style="position:absolute;left:48px;right:${showImage ? 316 : 48}px;top:${top + 194}px;bottom:44px;display:grid;gap:12px;align-content:start">${extra}</div>
     ${renderFooter(t, slideNum)}
     ${renderLogo(design)}
   </div>`;
@@ -743,9 +743,26 @@ function renderContentCompare(data, t, slideNum) {
   const rightTitle = data.compare_right_title || '핵심 B';
   const leftPoints = (data.compare_left_points || (data.points || []).slice(0, 2)).slice(0, 3);
   const rightPoints = (data.compare_right_points || (data.points || []).slice(2, 4)).slice(0, 3);
-  const imageHtml = shouldRenderSlideImage(slideImageAsset(data), 0.03)
-    ? renderSlideImage(data, 744, top - 2, 180, 92, { minCoverage: 0.03 })
-    : '';
+  const asset = slideImageAsset(data);
+  const showImage = shouldRenderSlideImage(asset, 0.024);
+  const orientation = imageOrientation(asset);
+  let imageHtml = '';
+  let leftBox = { x: 36, w: 414 };
+  let rightBox = { x: 506, w: 414 };
+  let dividerLeft = 476;
+  let bodyTop = top + 70;
+
+  if (showImage) {
+    if (orientation === 'portrait') {
+      leftBox = { x: 36, w: 252 };
+      rightBox = { x: 328, w: 252 };
+      dividerLeft = 304;
+      imageHtml = renderSlideImage(data, 668, top - 2, 228, 250, { minCoverage: 0.024 });
+    } else {
+      bodyTop = top + 196;
+      imageHtml = renderSlideImage(data, 42, top - 4, 874, 166, { minCoverage: 0.024 });
+    }
+  }
   const renderColumn = (items) => items.map((point, index) => `
     <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">
       <div style="width:12px;height:12px;border-radius:999px;background:${t.accent};margin-top:8px;flex-shrink:0"></div>
@@ -756,11 +773,11 @@ function renderContentCompare(data, t, slideNum) {
   return `<div style="position:relative;width:100%;height:100%;overflow:hidden;background:${t.bg};font-family:'${cssFont(t.font_name)}','Malgun Gothic','Noto Sans KR',sans-serif">
     ${header.html}
     ${imageHtml}
-    <div style="position:absolute;left:36px;top:${top}px;width:414px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(leftTitle)}</div>
-    <div style="position:absolute;right:36px;top:${top}px;width:414px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(rightTitle)}</div>
-    <div style="position:absolute;left:476px;top:${top + 8}px;bottom:52px;width:4px;background:${t.accent};border-radius:999px"></div>
-    <div style="position:absolute;left:36px;top:${top + 70}px;width:414px;bottom:44px">${renderColumn(leftPoints)}</div>
-    <div style="position:absolute;right:36px;top:${top + 70}px;width:414px;bottom:44px">${renderColumn(rightPoints)}</div>
+    <div style="position:absolute;left:${leftBox.x}px;top:${top}px;width:${leftBox.w}px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(leftTitle)}</div>
+    <div style="position:absolute;left:${rightBox.x}px;top:${top}px;width:${rightBox.w}px;height:52px;background:${t.light};border-radius:12px;padding:14px 16px;color:${t.accent};font-size:${Math.max(t.subtitle_font_size + 1, 16)}px;font-weight:700">${esc(rightTitle)}</div>
+    <div style="position:absolute;left:${dividerLeft}px;top:${top + 8}px;bottom:52px;width:4px;background:${t.accent};border-radius:999px"></div>
+    <div style="position:absolute;left:${leftBox.x}px;top:${bodyTop}px;width:${leftBox.w}px;bottom:44px">${renderColumn(leftPoints)}</div>
+    <div style="position:absolute;left:${rightBox.x}px;top:${bodyTop}px;width:${rightBox.w}px;bottom:44px">${renderColumn(rightPoints)}</div>
     ${renderFooter(t, slideNum)}
     ${renderLogo(design)}
   </div>`;
@@ -826,6 +843,18 @@ function renderCurrentSlide() {
   renderThumbs();
   const active = document.getElementById(`th-${cur}`);
   if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function buildResumeUrl() {
+  const params = new URLSearchParams();
+  params.set('resume', UID);
+  const currentName = document.getElementById('downloadNameInput').value.trim();
+  if (currentName) params.set('name', currentName);
+  return '/?' + params.toString();
+}
+
+function syncBackLink() {
+  document.getElementById('backBtn').href = buildResumeUrl();
 }
 
 function setEditorStatus(type, message) {
@@ -1020,6 +1049,7 @@ async function init() {
     document.getElementById('tbTitle').textContent = pdfName ? pdfName.replace('.pdf', '') : '슬라이드 미리보기';
     document.getElementById('tbBadge').textContent = `${slides.length}장 · ${resolvedTheme.preset_name} · ${CONTENT_LAYOUT_LABELS[normalizeLayoutId(design.content_layout)] || '자동 추천'}`;
     document.getElementById('downloadNameInput').value = INITIAL_DOWNLOAD_NAME || data.download_name || defaultDownloadName(pdfName, fileName);
+    syncBackLink();
 
     renderCurrentSlide();
     fillEditor();
@@ -1042,6 +1072,7 @@ document.getElementById('dlBtn').onclick = () => {
   if (!fileName) return;
   location.href = buildDownloadUrl(fileName, document.getElementById('downloadNameInput').value);
 };
+document.getElementById('downloadNameInput').addEventListener('input', syncBackLink);
 
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;

@@ -36,6 +36,29 @@ QUERY_STOPWORDS = {
     "page",
 }
 
+QUERY_TRAILING_SUFFIXES = (
+    "만이라도",
+    "만으로",
+    "만요",
+    "만은",
+    "만을",
+    "만",
+    "위주로",
+    "위주",
+    "중심으로",
+    "중심",
+    "부분만",
+    "파트만",
+    "부분",
+    "파트",
+    "내용만",
+    "내용",
+    "관련",
+    "쪽",
+    "범위",
+    "사용",
+)
+
 POSITION_HINTS = {
     "front": ("앞부분", "앞쪽", "초반", "서론", "도입", "초기"),
     "middle": ("중간", "중반"),
@@ -65,6 +88,24 @@ def _normalize_text(text: str) -> str:
 
 def _compact_text(text: str) -> str:
     return _normalize_text(text).replace(" ", "")
+
+
+def _strip_query_suffixes(token: str) -> str:
+    cleaned = str(token or "").strip()
+    if not cleaned:
+        return ""
+
+    for _ in range(4):
+        updated = cleaned
+        for suffix in QUERY_TRAILING_SUFFIXES:
+            if len(updated) > len(suffix) + 1 and updated.endswith(suffix):
+                updated = updated[: -len(suffix)]
+                break
+        if updated == cleaned:
+            break
+        cleaned = updated.strip()
+
+    return cleaned
 
 
 def parse_page_range(page_range: str, total_pages: int) -> list[int]:
@@ -126,6 +167,7 @@ def _extract_query_tokens(query: str) -> list[str]:
     normalized = _normalize_text(query)
     tokens = []
     for token in normalized.split():
+        token = _strip_query_suffixes(token)
         if token.isdigit():
             continue
         if len(token) < 2:
@@ -134,6 +176,42 @@ def _extract_query_tokens(query: str) -> list[str]:
             continue
         tokens.append(token)
     return tokens
+
+
+def _extract_query_phrases(query: str) -> list[str]:
+    tokens = _extract_query_tokens(query)
+    if not tokens:
+        return []
+
+    phrases = []
+    joined = " ".join(tokens).strip()
+    compact = "".join(tokens).strip()
+    if len(joined) >= 2:
+        phrases.append(joined)
+    if len(compact) >= 2 and compact != joined:
+        phrases.append(compact)
+
+    if len(tokens) >= 2:
+        for size in (2, 3):
+            if len(tokens) < size:
+                continue
+            for index in range(len(tokens) - size + 1):
+                chunk = tokens[index:index + size]
+                joined_chunk = " ".join(chunk).strip()
+                compact_chunk = "".join(chunk).strip()
+                if len(joined_chunk) >= 2:
+                    phrases.append(joined_chunk)
+                if len(compact_chunk) >= 2 and compact_chunk != joined_chunk:
+                    phrases.append(compact_chunk)
+
+    seen = set()
+    unique = []
+    for phrase in phrases:
+        if phrase in seen:
+            continue
+        seen.add(phrase)
+        unique.append(phrase)
+    return unique
 
 
 def _pages_for_position_hint(total_pages: int, hint_key: str) -> list[int]:
@@ -161,6 +239,7 @@ def select_pages_by_text_hint(pdf_path: str, page_hint: str, max_pages: int = 10
         return []
 
     tokens = _extract_query_tokens(text_hint)
+    phrases = _extract_query_phrases(text_hint)
     normalized_hint = _normalize_text(text_hint)
     compact_hint = _compact_text(text_hint)
     scores = {}
@@ -173,6 +252,7 @@ def select_pages_by_text_hint(pdf_path: str, page_hint: str, max_pages: int = 10
     for page_index, raw_text in enumerate(page_texts, start=1):
         normalized_page = _normalize_text(raw_text)
         compact_page = _compact_text(raw_text)
+        leading_page = " ".join(normalized_page.split()[:60])
         score = scores.get(page_index, 0)
 
         if normalized_hint and len(normalized_hint) >= 2 and normalized_hint in normalized_page:
@@ -180,11 +260,22 @@ def select_pages_by_text_hint(pdf_path: str, page_hint: str, max_pages: int = 10
         if compact_hint and len(compact_hint) >= 2 and compact_hint in compact_page:
             score += 8
 
+        for phrase in phrases:
+            if phrase in normalized_page:
+                score += 16
+            compact_phrase = phrase.replace(" ", "")
+            if compact_phrase and compact_phrase in compact_page:
+                score += 14
+            if phrase in leading_page:
+                score += 10
+
         for token in tokens:
             if token in normalized_page:
-                score += min(normalized_page.count(token), 5) * 2
+                score += min(normalized_page.count(token), 6) * 4
             if token in compact_page:
-                score += 1
+                score += 2
+            if token in leading_page:
+                score += 3
 
         if score > 0:
             scores[page_index] = score
@@ -192,20 +283,53 @@ def select_pages_by_text_hint(pdf_path: str, page_hint: str, max_pages: int = 10
     if not scores:
         return []
 
-    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
-    selected = []
-    seen = set()
+    scored_pages = sorted(scores)
+    clusters = []
+    current_cluster = [scored_pages[0]]
+    for page in scored_pages[1:]:
+        if page - current_cluster[-1] <= 2:
+            current_cluster.append(page)
+        else:
+            clusters.append(current_cluster)
+            current_cluster = [page]
+    clusters.append(current_cluster)
 
-    for page, _score in ranked:
-        neighbors = [page - 1, page, page + 1]
-        for candidate in neighbors:
-            if 1 <= candidate <= total_pages and candidate not in seen:
-                selected.append(candidate)
-                seen.add(candidate)
-                if len(selected) >= max_pages:
-                    return sorted(selected)
+    def cluster_rank(cluster_pages: list[int]):
+        start = cluster_pages[0]
+        end = cluster_pages[-1]
+        span = max(end - start + 1, 1)
+        hit_count = len(cluster_pages)
+        total_score = sum(scores.get(page, 0) for page in cluster_pages)
+        density = total_score / span
+        phrase_hits = sum(1 for page in cluster_pages if scores.get(page, 0) >= 18)
+        continuity_bonus = max(0, hit_count - 1) * 1.6
+        fragmentation_penalty = max(0, span - hit_count) * 2.1
+        broad_range_penalty = max(0, span - max_pages) * 3.5
+        strength = total_score + phrase_hits * 10 + continuity_bonus - fragmentation_penalty - broad_range_penalty
+        return (-strength, -density, -total_score, start)
 
-    return sorted(selected[:max_pages])
+    best_cluster = min(clusters, key=cluster_rank)
+    cluster_start = best_cluster[0]
+    cluster_end = best_cluster[-1]
+    start = max(1, cluster_start - 1)
+    end = min(total_pages, cluster_end + 1)
+    focus_span = min(max_pages, max(12, min(28, 12 + len(tokens) * 6)))
+
+    if (end - start + 1) > focus_span:
+        best_window = (start, min(total_pages, start + focus_span - 1))
+        best_window_score = None
+        for window_start in range(start, end - focus_span + 2):
+            window_end = window_start + focus_span - 1
+            window_score = sum(scores.get(page, 0) for page in range(window_start, window_end + 1))
+            if best_window_score is None or window_score > best_window_score:
+                best_window = (window_start, window_end)
+                best_window_score = window_score
+        start, end = best_window
+
+    if (end - start + 1) > max_pages:
+        end = start + max_pages - 1
+
+    return list(range(start, end + 1))
 
 
 def resolve_page_selection(pdf_path: str, page_hint: str | None, max_pages_per_chunk: int = 100) -> dict:
@@ -277,6 +401,44 @@ def format_page_ranges(page_numbers: list[int]) -> str:
         start = prev = page
     ranges.append(f"{start}-{prev}" if start != prev else str(start))
     return ", ".join(ranges)
+
+
+def _trim_rendered_image(image_bytes: bytes, tolerance: int = 245, margin: int = 6) -> bytes:
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            rgb = img.convert("RGB")
+            width, height = rgb.size
+            pixels = rgb.load()
+            left, top = width, height
+            right = bottom = -1
+
+            for y in range(height):
+                for x in range(width):
+                    r, g, b = pixels[x, y]
+                    if min(r, g, b) < tolerance:
+                        left = min(left, x)
+                        top = min(top, y)
+                        right = max(right, x)
+                        bottom = max(bottom, y)
+
+            if right < left or bottom < top:
+                return image_bytes
+
+            crop_box = (
+                max(0, left - margin),
+                max(0, top - margin),
+                min(width, right + margin + 1),
+                min(height, bottom + margin + 1),
+            )
+            if crop_box == (0, 0, width, height):
+                return image_bytes
+
+            cropped = rgb.crop(crop_box)
+            buffer = BytesIO()
+            cropped.save(buffer, format="PNG")
+            return buffer.getvalue()
+    except Exception:
+        return image_bytes
 
 
 def extract_pages_as_bytes(pdf_path: str, page_spec=None) -> bytes:
@@ -383,8 +545,8 @@ def extract_pdf_images(
                 clip_height = height
                 if main_rect is not None:
                     try:
-                        pad_x = max(main_rect.width * 0.12, 18)
-                        pad_y = max(main_rect.height * 0.12, 18)
+                        pad_x = max(main_rect.width * 0.05, 8)
+                        pad_y = max(main_rect.height * 0.05, 8)
                         clip_rect = fitz.Rect(
                             max(page.rect.x0, main_rect.x0 - pad_x),
                             max(page.rect.y0, main_rect.y0 - pad_y),
@@ -393,6 +555,7 @@ def extract_pdf_images(
                         )
                         pix = page.get_pixmap(matrix=fitz.Matrix(2.2, 2.2), clip=clip_rect, alpha=False)
                         rendered_bytes = pix.tobytes("png")
+                        rendered_bytes = _trim_rendered_image(rendered_bytes)
                         with Image.open(BytesIO(rendered_bytes)) as rendered_img:
                             clip_width, clip_height = rendered_img.size
                         clip_bytes = rendered_bytes

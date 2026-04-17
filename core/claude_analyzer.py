@@ -156,6 +156,9 @@ def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt:
         slide_instruction,
         f"Total PDF pages: {page_plan['total_pages']}",
         f"Pages included in this analysis: {len(page_plan['selected_pages'])}",
+        "Use only the selected pages listed below.",
+        "Do not use topics, examples, or sections from pages outside the selected page set.",
+        "Keep the lecture tightly focused on the selected chapter/part instead of broadening back out to the whole PDF.",
         "Prefer a lecture-ready structure that uses images and diagrams from the PDF when helpful.",
     ]
 
@@ -163,7 +166,7 @@ def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt:
         lines.append(f"Selected pages: {page_summary}")
     if page_plan.get("selection_note"):
         if ascii_safe_mode or _contains_non_ascii(page_plan.get("selection_note")):
-            lines.append("A local page-selection hint was applied before analysis.")
+            lines.append("A local topic-selection hint was applied before analysis. Stay tightly focused on the selected pages only.")
         else:
             lines.append(f"Page-selection note: {page_plan['selection_note']}")
     if extra_prompt and extra_prompt.strip():
@@ -262,11 +265,12 @@ def _summarize_large_pdf(client, pdf_path: str, page_plan: dict, extra_prompt: s
         chunk_text = (
             f"This PDF chunk corresponds to pages {format_page_ranges(pages)} from the original document.\n"
             f"The full document has {page_plan['total_pages']} pages.\n"
-            "Summarize this chunk into JSON for lecture planning."
+            "Summarize this chunk into JSON for lecture planning.\n"
+            "Stay focused on the selected pages only and do not reintroduce topics from excluded parts of the PDF."
         )
         if page_plan.get("selection_note"):
             if ascii_safe_mode or _contains_non_ascii(page_plan.get("selection_note")):
-                chunk_text += "\nA local page-selection hint was applied before chunk analysis."
+                chunk_text += "\nA local topic-selection hint was applied before chunk analysis. Remain tightly scoped to the selected chapter/part."
             else:
                 chunk_text += f"\nPage-selection note: {page_plan['selection_note']}"
         if extra_prompt and extra_prompt.strip():
@@ -300,10 +304,11 @@ def analyze_pdf(
     page_range: str = None,
     extra_prompt: str = None,
     ascii_safe_mode: bool = False,
+    page_plan: dict | None = None,
 ) -> list:
     """PDF → Claude API → 슬라이드 JSON"""
     client = _build_client()
-    page_plan = resolve_page_selection(pdf_path, page_range, max_pages_per_chunk=100)
+    page_plan = page_plan or resolve_page_selection(pdf_path, page_range, max_pages_per_chunk=100)
 
     if len(page_plan["selected_pages"]) <= page_plan["chunk_size"]:
         pdf_bytes = extract_pages_as_bytes(pdf_path, page_plan["selected_pages"])

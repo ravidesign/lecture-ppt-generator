@@ -54,7 +54,8 @@ def _asset_score(asset: dict, source_pages: list[int], fallback_index: int) -> t
             distance = 0
         else:
             distance = min(abs(asset_page - page) for page in source_pages)
-        return (0 if asset_page in source_pages else 1, distance, quality_bucket, fallback_index)
+        exact_match = 0 if asset_page in source_pages else 1
+        return (exact_match, distance, quality_bucket, fallback_index)
 
     return (2, quality_bucket, abs(fallback_index), asset_page)
 
@@ -103,7 +104,7 @@ def attach_pdf_images_to_slides(slides_data: list[dict], media_assets: list[dict
             nearby_assets = [
                 asset
                 for asset in candidate_pool
-                if min(abs(int(asset.get("page") or 0) - page) for page in source_pages) <= 2
+                if min(abs(int(asset.get("page") or 0) - page) for page in source_pages) <= 1
             ]
             if nearby_assets:
                 candidate_pool = nearby_assets
@@ -122,7 +123,7 @@ def attach_pdf_images_to_slides(slides_data: list[dict], media_assets: list[dict
 
         if source_pages:
             closest_page_distance = min(abs(int(chosen_asset.get("page") or 0) - page) for page in source_pages)
-            if closest_page_distance > 3:
+            if closest_page_distance > 1:
                 continue
         elif _asset_quality_bucket(chosen_asset) >= 2:
             continue

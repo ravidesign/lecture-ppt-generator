@@ -426,6 +426,7 @@ def _run_analysis_pipeline(
                 slide_count,
                 page_range=page_range or None,
                 extra_prompt=extra_prompt or None,
+                page_plan=page_plan,
             )
         except UnicodeEncodeError:
             notify("analyze_pdf_ascii_safe_retry", "인코딩 안전 모드로 다시 분석하고 있습니다...")
@@ -435,6 +436,7 @@ def _run_analysis_pipeline(
                 page_range=page_range or None,
                 extra_prompt=extra_prompt or None,
                 ascii_safe_mode=True,
+                page_plan=page_plan,
             )
 
         notify("review_slides", "슬라이드 구조를 점검하고 있습니다...")
@@ -475,6 +477,7 @@ def _run_analysis_pipeline(
             "auto_slide_count": auto_slide_count,
             "page_plan": {
                 "mode": page_plan["mode"],
+                "page_hint": page_plan.get("page_hint", ""),
                 "selected_pages": page_plan["selected_pages"],
                 "selection_note": page_plan.get("selection_note", ""),
             },

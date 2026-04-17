@@ -682,6 +682,7 @@ function createInitialState() {
 let S = createInitialState();
 let presetMeta = LOCAL_PRESETS.slice();
 let fontMeta = LOCAL_FONTS.slice();
+const PAGE_PARAMS = new URLSearchParams(location.search);
 
 function esc(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -703,6 +704,13 @@ function setSt(id, type, msg) {
   el.className = 'st ' + type;
   el.innerHTML = (type === 'load' ? '<div class="sp"></div>' : '') + `<span>${esc(msg)}</span>`;
   el.style.display = 'flex';
+}
+
+function applyDoneSummary(presetName, slideCount, noteText) {
+  $('ds').textContent = `${slideCount}장`;
+  $('dth').textContent = presetName;
+  $('dn').textContent = noteText || '미리보기에서 슬라이드 내용을 수정한 뒤 다시 저장할 수도 있습니다.';
+  $('downloadNameInput').value = S.download_name || '';
 }
 
 function apiErrorMessage(data, fallback) {
@@ -1839,10 +1847,7 @@ $('gb').onclick = async () => {
 
     S.preview_uid = data.preview_uid;
     S.download_name = data.download_name || S.download_name || defaultDownloadName(S.file.name);
-    $('ds').textContent = data.slide_count + '장';
-    $('dth').textContent = data.preset;
-    $('dn').textContent = '미리보기에서 슬라이드 내용을 수정한 뒤 다시 저장할 수도 있습니다.';
-    $('downloadNameInput').value = S.download_name;
+    applyDoneSummary(data.preset, data.slide_count);
     $('s2').style.display = 'none';
     $('s3').style.display = 'block';
   } catch (error) {
@@ -1894,6 +1899,41 @@ $('rb').onclick = () => {
   syncScanControls();
 };
 
+async function restorePreviewSession(uid) {
+  try {
+    const response = await fetch(`/api/slides/${encodeURIComponent(uid)}`, { cache: 'no-store' });
+    const data = await readApiPayload(response, '저장된 작업 불러오기');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '저장된 작업 불러오기 실패'));
+
+    const pdfName = data.pdf_name || '강의자료.pdf';
+    const nextState = createInitialState();
+    nextState.preview_uid = uid;
+    nextState.file = { name: pdfName };
+    nextState.slides = data.slides || [];
+    nextState.outline = data.outline || buildLocalOutline(nextState.slides);
+    nextState.quality = data.quality || computeLocalQuality(nextState.slides);
+    nextState.page_plan = data.page_plan || null;
+    nextState.assets = data.assets || [];
+    nextState.design = normalizeDesign(data.design || { preset: 'corporate' });
+    nextState.designDraft = cloneDesign(nextState.design);
+    nextState.download_name = PAGE_PARAMS.get('name') || data.download_name || defaultDownloadName(pdfName);
+    S = nextState;
+
+    syncDesignInputs();
+    showDesignCards();
+    applyDoneSummary(presetLabel(S.design.preset), S.slides.length, '이전에 생성한 결과를 다시 불러왔습니다. 미리보기와 다운로드를 바로 이어서 사용할 수 있습니다.');
+    $('s1').style.display = 'none';
+    $('s2').style.display = 'none';
+    $('s3').style.display = 'block';
+    hideSt('st1');
+    hideSt('st2');
+    return true;
+  } catch (error) {
+    setSt('st1', 'err', '저장된 작업을 다시 불러오지 못했습니다: ' + error.message);
+    return false;
+  }
+}
+
 async function loadH() {
   try {
     const historyResponse = await fetch('/api/history');
@@ -1928,6 +1968,11 @@ renderLayoutGrid();
 ensureDesignMeta();
 ensureCapabilities();
 updateSlideCountUI();
+
+const resumeUid = PAGE_PARAMS.get('resume');
+if (resumeUid) {
+  restorePreviewSession(resumeUid);
+}
 </script>
 </body>
 </html>

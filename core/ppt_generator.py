@@ -642,12 +642,12 @@ def _image_orientation(image_asset: dict | None) -> str:
     return "square"
 
 
-def _image_is_prominent(image_asset: dict | None, minimum_coverage: float = 0.018) -> bool:
+def _image_is_prominent(image_asset: dict | None, minimum_coverage: float = 0.022) -> bool:
     if not image_asset:
         return False
     coverage = float(image_asset.get("coverage_ratio") or 0)
     display_area = float(image_asset.get("display_area") or 0)
-    return coverage >= minimum_coverage or display_area >= 24000
+    return coverage >= minimum_coverage or display_area >= 42000
 
 
 def _add_content_image(slide, image_asset: dict | None, x: float, y: float, w: float, h: float):
@@ -655,16 +655,11 @@ def _add_content_image(slide, image_asset: dict | None, x: float, y: float, w: f
     if not path or not os.path.exists(path):
         return False
 
-    frame = slide.shapes.add_shape(1, Inches(x), Inches(y), Inches(w), Inches(h))
-    frame.fill.solid()
-    frame.fill.fore_color.rgb = RGBColor(0xF7, 0xF9, 0xFC)
-    frame.line.color.rgb = RGBColor(0xDE, 0xE5, 0xF0)
-
     try:
         with Image.open(path) as img:
             img_w, img_h = img.size
-        max_w = Inches(w - 0.14)
-        max_h = Inches(h - 0.14)
+        max_w = Inches(w)
+        max_h = Inches(h)
         ratio = min(max_w / img_w, max_h / img_h)
         width = int(img_w * ratio)
         height = int(img_h * ratio)
@@ -799,17 +794,17 @@ def _content_slide_classic(prs, data, t, slide_index, media_assets=None):
     if _image_is_prominent(image_asset):
         orientation = _image_orientation(image_asset)
         if orientation == "portrait":
-            image_drawn = _add_content_image(slide, image_asset, 9.72, max(body_top, 1.56), 2.62, 4.04)
+            image_drawn = _add_content_image(slide, image_asset, 8.72, max(body_top - 0.02, 1.52), 3.9, 4.76)
             if image_drawn:
-                body_width = 8.55
+                body_width = 7.25
         elif orientation == "square":
-            image_drawn = _add_content_image(slide, image_asset, 9.35, max(body_top, 1.62), 3.15, 3.15)
+            image_drawn = _add_content_image(slide, image_asset, 8.45, max(body_top, 1.56), 4.1, 3.98)
             if image_drawn:
-                body_width = 8.2
+                body_width = 7.0
         else:
-            image_drawn = _add_content_image(slide, image_asset, 8.85, max(body_top, 1.72), 3.95, 2.82)
+            image_drawn = _add_content_image(slide, image_asset, 8.08, max(body_top + 0.12, 1.66), 4.6, 3.2)
             if image_drawn:
-                body_width = 7.85
+                body_width = 6.72
 
     y = body_top
     spacing = _bullet_spacing(density)
@@ -874,12 +869,12 @@ def _content_slide_split(prs, data, t, slide_index, media_assets=None):
     if _image_is_prominent(image_asset):
         orientation = _image_orientation(image_asset)
         if orientation == "portrait":
-            if _add_content_image(slide, image_asset, 9.62, 1.08, 2.48, 3.62):
-                bullet_width = 4.4
-                bullet_start_y = 1.15
-        else:
-            if _add_content_image(slide, image_asset, 5.05, 0.92, 7.55, 1.85):
-                bullet_start_y = 2.95
+            if _add_content_image(slide, image_asset, 8.95, 1.02, 3.38, 4.5):
+                bullet_width = 3.86
+                bullet_start_y = 1.12
+        elif _add_content_image(slide, image_asset, 4.95, 0.96, 7.72, 2.32):
+            bullet_start_y = 3.48
+            bullet_width = 7.6
 
     y = bullet_start_y
     spacing = _bullet_spacing(density)
@@ -913,12 +908,12 @@ def _content_slide_card(prs, data, t, slide_index, media_assets=None):
     if _image_is_prominent(image_asset):
         orientation = _image_orientation(image_asset)
         if orientation == "portrait":
-            if _add_content_image(slide, image_asset, 9.92, top_y, 2.5, 3.42):
-                grid_width = 8.92
+            if _add_content_image(slide, image_asset, 8.92, top_y, 3.45, 4.22):
+                grid_width = 8.0
                 cols = 2
-                card_height = 1.62
-        elif _add_content_image(slide, image_asset, 0.55, top_y, 12.23, 1.65):
-            grid_y += 1.92
+                card_height = 1.78
+        elif _add_content_image(slide, image_asset, 0.55, top_y, 12.23, 2.08):
+            grid_y += 2.3
 
     card_width = (grid_width - gap * (cols - 1)) / cols
 
@@ -967,14 +962,14 @@ def _content_slide_highlight(prs, data, t, slide_index, media_assets=None):
         if _image_is_prominent(image_asset):
             orientation = _image_orientation(image_asset)
             if orientation == "portrait":
-                if _add_content_image(slide, image_asset, 9.58, highlight_y, 2.7, 2.18):
-                    highlight_w = 8.7
-                    text_w = 7.75
-                    lead_right = 8.95
-            elif _add_content_image(slide, image_asset, 8.1, highlight_y, 4.73, 2.0):
-                highlight_w = 7.35
-                text_w = 6.5
-                lead_right = 7.62
+                if _add_content_image(slide, image_asset, 8.72, highlight_y - 0.05, 3.92, 2.52):
+                    highlight_w = 7.82
+                    text_w = 6.9
+                    lead_right = 8.24
+            elif _add_content_image(slide, image_asset, 7.82, highlight_y - 0.05, 4.92, 2.18):
+                highlight_w = 6.98
+                text_w = 6.02
+                lead_right = 7.38
         _rect(slide, 0.5, highlight_y, highlight_w, 2.0, t["accent"])
         _tb(
             slide,
@@ -1030,12 +1025,12 @@ def _content_slide_process(prs, data, t, slide_index, media_assets=None):
     if _image_is_prominent(image_asset):
         orientation = _image_orientation(image_asset)
         if orientation == "portrait":
-            if _add_content_image(slide, image_asset, 10.15, top_y - 0.02, 2.1, 2.24):
-                total_width = 9.08
-                extra_right = 9.45
-        elif _add_content_image(slide, image_asset, 9.75, top_y - 0.02, 2.55, 1.58):
-            total_width = 9.05
-            extra_right = 9.4
+            if _add_content_image(slide, image_asset, 8.98, top_y + 0.08, 3.35, 4.16):
+                total_width = 7.72
+                extra_right = 8.22
+        elif _add_content_image(slide, image_asset, 8.72, top_y + 0.08, 3.75, 2.56):
+            total_width = 7.45
+            extra_right = 8.18
 
     usable_steps = steps or [point for point in data.get("points", [])[:3] if str(point).strip()]
     step_count = max(len(usable_steps), 1)
@@ -1126,17 +1121,31 @@ def _content_slide_compare(prs, data, t, slide_index, media_assets=None):
     right_title = data.get("compare_right_title") or "핵심 B"
     left_points = data.get("compare_left_points") or data.get("points", [])[:2]
     right_points = data.get("compare_right_points") or data.get("points", [])[2:4]
+    left_box_x = 0.6
+    right_box_x = 6.95
+    box_width = 5.7
+    divider_x = 6.58
+    body_y = top_y + 1.15
+    bottom_limit = 6.42 if t.get("footer_enabled", True) else 6.78
 
-    if _image_is_prominent(image_asset, minimum_coverage=0.03):
-        _add_content_image(slide, image_asset, 10.05, top_y - 0.05, 2.5, 1.55)
+    if _image_is_prominent(image_asset, minimum_coverage=0.024):
+        orientation = _image_orientation(image_asset)
+        if orientation == "portrait":
+            if _add_content_image(slide, image_asset, 9.28, top_y - 0.02, 3.0, 3.56):
+                left_box_x = 0.6
+                right_box_x = 4.65
+                box_width = 3.5
+                divider_x = 4.28
+        elif _add_content_image(slide, image_asset, 0.62, top_y - 0.02, 12.0, 1.92):
+            body_y = top_y + 2.2
 
-    _rect(slide, 0.6, top_y, 5.7, 0.9, t["light"])
-    _rect(slide, 6.95, top_y, 5.7, 0.9, t["light"])
+    _rect(slide, left_box_x, top_y, box_width, 0.9, t["light"])
+    _rect(slide, right_box_x, top_y, box_width, 0.9, t["light"])
     _tb(
         slide,
-        0.82,
+        left_box_x + 0.22,
         top_y + 0.18,
-        5.2,
+        box_width - 0.45,
         0.45,
         left_title,
         max(t.get("subtitle_font_size", DEFAULT_SUBTITLE_FONT_SIZE) + 1, 16),
@@ -1146,9 +1155,9 @@ def _content_slide_compare(prs, data, t, slide_index, media_assets=None):
     )
     _tb(
         slide,
-        7.18,
+        right_box_x + 0.23,
         top_y + 0.18,
-        5.2,
+        box_width - 0.45,
         0.45,
         right_title,
         max(t.get("subtitle_font_size", DEFAULT_SUBTITLE_FONT_SIZE) + 1, 16),
@@ -1156,18 +1165,18 @@ def _content_slide_compare(prs, data, t, slide_index, media_assets=None):
         color=t["accent"],
         font_name=t["font_name"],
     )
-    _rect(slide, 6.58, top_y + 0.08, 0.05, 4.5, t["accent"])
+    _rect(slide, divider_x, top_y + 0.08, 0.05, max(bottom_limit - top_y - 0.24, 3.6), t["accent"])
 
     metrics = _body_metrics(t)
-    left_y = top_y + 1.15
-    right_y = top_y + 1.15
+    left_y = body_y
+    right_y = body_y
     spacing = _bullet_spacing(metrics)
     for idx, point in enumerate(left_points[:3]):
-        bullet_height = _add_bullet(slide, 0.82, left_y, point, t, idx, width=5.0, size=max(metrics["size"] - 1, 14))
+        bullet_height = _add_bullet(slide, left_box_x + 0.22, left_y, point, t, idx, width=box_width - 0.45, size=max(metrics["size"] - 1, 14))
         left_y += bullet_height + spacing
 
     for idx, point in enumerate(right_points[:3]):
-        bullet_height = _add_bullet(slide, 7.18, right_y, point, t, idx, width=5.0, size=max(metrics["size"] - 1, 14))
+        bullet_height = _add_bullet(slide, right_box_x + 0.23, right_y, point, t, idx, width=box_width - 0.45, size=max(metrics["size"] - 1, 14))
         right_y += bullet_height + spacing
 
     _add_footer(slide, slide_index, t)
