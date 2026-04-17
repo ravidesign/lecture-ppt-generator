@@ -1101,7 +1101,7 @@ function showDesignCards() {
   $('oc').style.display = 'block';
   $('dc').style.display = 'block';
   $('pc').style.display = 'block';
-  $('scanCard').style.display = 'block';
+  $('scanCard').style.display = S.ocr_available ? 'block' : 'none';
   $('epc').style.display = 'block';
 }
 
