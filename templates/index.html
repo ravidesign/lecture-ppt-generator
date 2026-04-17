@@ -216,6 +216,16 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
 .quality-note{font-size:12px;color:var(--sub);line-height:1.6;margin-bottom:16px}
 .warn-list{display:grid;gap:8px;margin-bottom:16px}
 .warn-item{font-size:12px;color:#9A3412;background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:10px 12px}
+.page-plan-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px}
+.page-plan-preview{margin-top:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);padding:14px;display:grid;gap:10px}
+.page-plan-preview[hidden]{display:none}
+.page-plan-title{font-size:12px;font-weight:700;color:var(--text)}
+.page-plan-meta{display:flex;gap:8px;flex-wrap:wrap}
+.page-plan-chip{font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;background:#E8EEF8;color:#35517C}
+.page-plan-note{font-size:12px;color:var(--sub);line-height:1.6}
+.page-plan-list{display:grid;gap:7px}
+.page-plan-item{font-size:12px;color:var(--text);line-height:1.6;padding:8px 10px;border-radius:9px;background:#fff;border:1px solid var(--border)}
+.page-plan-warn{font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;padding:8px 10px}
 .outline-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 14px}
 .outline-help{font-size:12px;color:var(--sub)}
 .outline-list{display:grid;gap:12px}
@@ -302,7 +312,8 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
       <div class="card" id="oc">
         <div class="card-label">슬라이드 옵션</div>
         <div class="opts">
-          <div>
+          <div style="display:grid;gap:14px">
+            <div>
             <div class="ol">콘텐츠 슬라이드 수</div>
             <div class="counter">
               <button class="cb" id="bm">−</button>
@@ -314,6 +325,19 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
               <input type="checkbox" id="autoSlideCount">
               <span>장수 상관없이 제작 시작</span>
             </label>
+          </div>
+            <div class="field" style="max-width:320px">
+              <label for="lectureGoalSelect">강의 목적</label>
+              <select id="lectureGoalSelect" class="select-input">
+                <option value="standard">표준 강의안</option>
+                <option value="intro">입문자 친화형</option>
+                <option value="exam">시험 대비형</option>
+                <option value="practice">실습/예시 중심형</option>
+                <option value="theory">이론 정리형</option>
+                <option value="briefing">짧은 브리핑형</option>
+              </select>
+              <small>같은 PDF라도 강의 목적에 따라 설명 방식과 슬라이드 구성이 달라집니다.</small>
+            </div>
           </div>
           <div style="font-size:12px;color:var(--sub);max-width:320px">
             PDF 분석은 그대로 진행되고, 아래 디자인 설정은 PPT 생성 단계에 반영됩니다.
@@ -457,6 +481,17 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         <div class="card-label">페이지 범위 / 사용할 파트 (선택사항)</div>
         <input type="text" id="pr" class="txt-input" placeholder="예: 1-5, 8, 10-12 / 결론 부분 위주로 / 실험 결과 파트만 사용해줘">
         <div style="font-size:11px;color:var(--hint);margin-top:6px">숫자 범위뿐 아니라 텍스트 요청도 해석합니다. 예: 3장부터 8장, 결론 부분, 실습 예제 파트</div>
+        <div class="page-plan-actions">
+          <div style="font-size:12px;color:var(--sub)">분석 전에 선택 파트가 어떻게 해석됐는지 미리 확인할 수 있습니다.</div>
+          <button type="button" class="btn btn-g" id="pagePlanPreviewBtn">선택 파트 미리 확인</button>
+        </div>
+        <div class="page-plan-preview" id="pagePlanPreviewBox" hidden>
+          <div class="page-plan-title">선택 파트 미리 확인</div>
+          <div class="page-plan-meta" id="pagePlanPreviewMeta"></div>
+          <div class="page-plan-note" id="pagePlanPreviewNote"></div>
+          <div class="page-plan-list" id="pagePlanPreviewList"></div>
+          <div class="page-plan-warn" id="pagePlanPreviewWarn" hidden></div>
+        </div>
       </div>
 
       <div class="card" id="scanCard">
@@ -660,6 +695,14 @@ const ROLE_LABELS = {
   chapter: '챕터',
   summary: '요약',
 };
+const LECTURE_GOAL_LABELS = {
+  standard: '표준 강의안',
+  intro: '입문자 친화형',
+  exam: '시험 대비형',
+  practice: '실습/예시 중심형',
+  theory: '이론 정리형',
+  briefing: '짧은 브리핑형',
+};
 
 function createDefaultDesign() {
   return {
@@ -689,10 +732,12 @@ function createInitialState() {
     outline: [],
     quality: null,
     page_plan: null,
+    page_plan_preview: null,
     out: null,
     preview_uid: null,
     download_name: '',
     auto_slide_count: false,
+    lecture_goal: 'standard',
     enhance_scans: false,
     ocr_available: false,
     ocr_used: false,
@@ -721,6 +766,51 @@ function parseLines(value) {
     .split('\n')
     .map(line => line.trim())
     .filter(Boolean);
+}
+
+function lectureGoalLabel(value) {
+  return LECTURE_GOAL_LABELS[value] || LECTURE_GOAL_LABELS.standard;
+}
+
+function resetPagePlanPreview() {
+  S.page_plan_preview = null;
+  $('pagePlanPreviewBox').hidden = true;
+  $('pagePlanPreviewMeta').innerHTML = '';
+  $('pagePlanPreviewNote').textContent = '';
+  $('pagePlanPreviewList').innerHTML = '';
+  $('pagePlanPreviewWarn').hidden = true;
+  $('pagePlanPreviewWarn').textContent = '';
+}
+
+function renderPagePlanPreview() {
+  const preview = S.page_plan_preview;
+  if (!preview || typeof preview !== 'object') {
+    resetPagePlanPreview();
+    return;
+  }
+
+  const meta = [];
+  if (preview.page_summary) meta.push(`<span class="page-plan-chip">${esc(preview.page_summary)}</span>`);
+  if (preview.selected_count) meta.push(`<span class="page-plan-chip">선택 ${esc(preview.selected_count)}장</span>`);
+  if (preview.mode) meta.push(`<span class="page-plan-chip">${esc(preview.mode)}</span>`);
+  if (preview.goal_label || S.lecture_goal) meta.push(`<span class="page-plan-chip">${esc(preview.goal_label || lectureGoalLabel(S.lecture_goal))}</span>`);
+  $('pagePlanPreviewMeta').innerHTML = meta.join('');
+  $('pagePlanPreviewNote').textContent = preview.selection_note || '선택 파트가 아직 정리되지 않았습니다.';
+  $('pagePlanPreviewList').innerHTML = (preview.headings || []).length
+    ? preview.headings.map(item => {
+        const page = typeof item === 'object' ? item.page : '';
+        const heading = typeof item === 'object' ? item.heading : item;
+        return `<div class="page-plan-item">${page ? `<strong>${esc(page)}p</strong> · ` : ''}${esc(heading)}</div>`;
+      }).join('')
+    : '<div class="page-plan-item">대표 제목을 찾지 못해 페이지 번호 기준으로 분석합니다.</div>';
+  if (preview.warning) {
+    $('pagePlanPreviewWarn').hidden = false;
+    $('pagePlanPreviewWarn').textContent = preview.warning;
+  } else {
+    $('pagePlanPreviewWarn').hidden = true;
+    $('pagePlanPreviewWarn').textContent = '';
+  }
+  $('pagePlanPreviewBox').hidden = false;
 }
 
 function setSt(id, type, msg) {
@@ -1316,6 +1406,8 @@ fi.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.fil
 function setFile(file) {
   S.file = file;
   S.download_name = defaultDownloadName(file.name);
+  S.page_plan = null;
+  resetPagePlanPreview();
   $('di').textContent = '✅';
   $('dt').textContent = file.name;
   $('df').style.display = 'block';
@@ -1334,9 +1426,45 @@ $('autoSlideCount').addEventListener('change', e => {
   S.auto_slide_count = e.target.checked;
   updateSlideCountUI();
 });
+$('lectureGoalSelect').addEventListener('change', e => {
+  S.lecture_goal = e.target.value || 'standard';
+  if (S.page_plan_preview) {
+    S.page_plan_preview.goal_label = lectureGoalLabel(S.lecture_goal);
+    renderPagePlanPreview();
+  }
+});
 $('enhanceScansToggle').addEventListener('change', e => {
   S.enhance_scans = e.target.checked;
   $('scanToggleText').textContent = e.target.checked ? 'ON' : 'OFF';
+});
+$('pr').addEventListener('input', () => {
+  S.page_plan = null;
+  resetPagePlanPreview();
+});
+
+$('pagePlanPreviewBtn').addEventListener('click', async () => {
+  if (!S.file) return;
+  $('pagePlanPreviewBtn').disabled = true;
+  setSt('st1', 'load', '선택 파트를 미리 해석하고 있습니다...');
+  try {
+    const formData = new FormData();
+    formData.append('file', S.file);
+    formData.append('page_range', $('pr').value.trim());
+    const response = await fetch('/api/page-plan-preview', { method: 'POST', body: formData, cache: 'no-store' });
+    const data = await readApiPayload(response, '선택 파트 미리 확인');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '선택 파트 미리 확인 실패'));
+    S.page_plan = data.page_plan || null;
+    S.page_plan_preview = {
+      ...(data.preview || {}),
+      goal_label: lectureGoalLabel(S.lecture_goal),
+    };
+    renderPagePlanPreview();
+    setSt('st1', 'ok', '선택 파트를 미리 정리했습니다. 범위가 의도와 맞는지 확인해 주세요.');
+  } catch (error) {
+    setSt('st1', 'err', '오류: ' + error.message);
+  } finally {
+    $('pagePlanPreviewBtn').disabled = false;
+  }
 });
 
 function bindColorControl(hexId, colorId, resetId, key, fallback) {
@@ -1581,10 +1709,12 @@ function syncReviewState() {
 
 function pagePlanMetaText() {
   const parts = [];
+  if (S.lecture_goal) parts.push(`강의 목적 ${lectureGoalLabel(S.lecture_goal)}`);
   if (S.page_plan?.selection_note) parts.push(S.page_plan.selection_note);
   if (Array.isArray(S.page_plan?.selected_pages) && S.page_plan.selected_pages.length) {
     parts.push(`선택 페이지 ${S.page_plan.selected_pages.length}장`);
   }
+  if (S.page_plan_preview?.warning) parts.push(S.page_plan_preview.warning);
   if (S.ocr_used) parts.push('OCR 보정 적용됨');
   else if (S.enhance_scans && S.ocr_note) parts.push(S.ocr_note);
   return parts.join(' · ');
@@ -1786,6 +1916,7 @@ $('ab').onclick = async () => {
   formData.append('slide_count', S.cnt);
   formData.append('auto_slide_count', S.auto_slide_count ? 'true' : 'false');
   formData.append('enhance_scans', S.enhance_scans ? 'true' : 'false');
+  formData.append('lecture_goal', S.lecture_goal);
   formData.append('page_range', $('pr').value.trim());
   formData.append('extra_prompt', $('ep').value.trim());
 
@@ -1802,10 +1933,12 @@ $('ab').onclick = async () => {
     S.outline = data.outline || [];
     S.quality = data.quality || null;
     S.page_plan = data.page_plan || null;
+    S.page_plan_preview = data.page_plan_preview || S.page_plan_preview;
     S.assets = data.assets || [];
     S.ocr_available = !!data.ocr_available;
     S.ocr_used = !!data.ocr_used;
     S.ocr_note = data.ocr_error || (S.enhance_scans && !data.ocr_available ? 'OCR 보정을 요청했지만 현재 서버에서 사용할 수 없습니다.' : '');
+    renderPagePlanPreview();
     syncScanControls();
     showStepTwo();
   } catch (error) {
@@ -1821,7 +1954,7 @@ function showStepTwo() {
   $('s2').style.display = 'block';
   hideSt('st2');
   const contentCount = S.slides.filter(item => item.type === 'content').length;
-  $('pm').textContent = `총 ${S.slides.length}장 · 콘텐츠 ${contentCount}장 · PDF 이미지 ${S.assets.length}개 추출 · ${presetLabel(S.design.preset)} · ${layoutLabel(S.design.content_layout)}`;
+  $('pm').textContent = `총 ${S.slides.length}장 · 콘텐츠 ${contentCount}장 · PDF 이미지 ${S.assets.length}개 추출 · ${lectureGoalLabel(S.lecture_goal)} · ${presetLabel(S.design.preset)} · ${layoutLabel(S.design.content_layout)}`;
   renderQualitySummary();
   renderOutlineEditor();
   renderSlideCards();
@@ -1867,6 +2000,7 @@ $('reviewBtn').onclick = async () => {
         slides: S.slides,
         assets: S.assets,
         page_plan: S.page_plan,
+        page_plan_preview: S.page_plan_preview,
       }),
     });
     const data = await readApiPayload(response, '품질 점검');
@@ -1903,8 +2037,10 @@ $('gb').onclick = async () => {
         slides: S.slides,
         assets: S.assets,
         page_plan: S.page_plan,
+        page_plan_preview: S.page_plan_preview,
         design: S.design,
         pdf_name: S.file.name,
+        lecture_goal: S.lecture_goal,
       }),
     });
     const data = await readApiPayload(response, '생성');
@@ -1943,6 +2079,7 @@ $('rb').onclick = () => {
   dz.classList.remove('ok');
   $('pr').value = '';
   $('ep').value = '';
+  $('lectureGoalSelect').value = 'standard';
   $('downloadNameInput').value = '';
   $('cv').textContent = '10';
   $('autoSlideCount').checked = false;
@@ -1958,6 +2095,7 @@ $('rb').onclick = () => {
   updateSlideCountUI();
   syncUploadLockedState();
   syncScanControls();
+  resetPagePlanPreview();
 };
 
 async function restorePreviewSession(uid) {
@@ -1974,13 +2112,17 @@ async function restorePreviewSession(uid) {
     nextState.outline = data.outline || buildLocalOutline(nextState.slides);
     nextState.quality = data.quality || computeLocalQuality(nextState.slides);
     nextState.page_plan = data.page_plan || null;
+    nextState.page_plan_preview = data.page_plan_preview || null;
     nextState.assets = data.assets || [];
+    nextState.lecture_goal = data.lecture_goal || 'standard';
     nextState.design = normalizeDesignState(data.design || { preset: 'corporate' });
     nextState.designDraft = cloneDesign(nextState.design);
     nextState.download_name = PAGE_PARAMS.get('name') || data.download_name || defaultDownloadName(pdfName);
     S = nextState;
 
     syncDesignInputs();
+    $('lectureGoalSelect').value = S.lecture_goal;
+    renderPagePlanPreview();
     showDesignCards();
     applyDoneSummary(presetLabel(S.design.preset), S.slides.length, '이전에 생성한 결과를 다시 불러왔습니다. 미리보기와 다운로드를 바로 이어서 사용할 수 있습니다.');
     $('s1').style.display = 'none';
@@ -2030,6 +2172,8 @@ ensureDesignMeta();
 ensureCapabilities();
 updateSlideCountUI();
 syncUploadLockedState();
+$('lectureGoalSelect').value = S.lecture_goal;
+resetPagePlanPreview();
 
 const resumeUid = PAGE_PARAMS.get('resume');
 if (resumeUid) {

@@ -95,6 +95,7 @@ VALID_LAYOUTS = {
 }
 VALID_ROLES = {"title", "toc", "content", "chapter", "summary"}
 VALID_IMAGE_MODES = {"hero", "support", "none"}
+VALID_IMAGE_CHOICE_MODES = {"auto", "manual", "manual_none"}
 
 
 def _clean_text(value) -> str:
@@ -165,6 +166,11 @@ def _normalize_layout(value) -> str:
 def _normalize_image_mode(value) -> str:
     mode = _clean_text(value).lower()
     return mode if mode in VALID_IMAGE_MODES else "none"
+
+
+def _normalize_image_choice_mode(value) -> str:
+    mode = _clean_text(value).lower()
+    return mode if mode in VALID_IMAGE_CHOICE_MODES else "auto"
 
 
 def _normalize_source_page_list(source_pages: str) -> list[int]:
@@ -266,10 +272,14 @@ def _should_split_slide(slide: dict, density: dict) -> tuple[bool, str]:
         return True, "포인트 수가 많아 두 장으로 나누는 편이 읽기 쉽습니다."
     if image_mode == "hero" and density["point_count"] >= 4:
         return True, "이미지를 크게 보여주려면 내용을 나누는 편이 좋습니다."
+    if image_mode == "hero" and density["total_chars"] >= 160:
+        return True, "이미지와 본문을 함께 크게 보여주기 위해 내용을 나누는 편이 좋습니다."
     if kind == "process" and density["point_count"] >= 5:
         return True, "단계형 설명이 길어져 두 장으로 나누는 편이 좋습니다."
-    if kind == "compare" and density["total_chars"] >= 180:
+    if kind == "compare" and (density["total_chars"] >= 160 or density["point_count"] >= 4):
         return True, "비교 항목이 많아 두 장으로 나누는 편이 좋습니다."
+    if density["point_count"] >= 4 and density["max_len"] >= 78:
+        return True, "긴 문장이 많아 두 장으로 나누는 편이 읽기 쉽습니다."
     return False, ""
 
 
@@ -421,10 +431,20 @@ def _apply_layout_safety(layout: str, slide: dict, density: dict) -> str:
 
     if layout == "compare" and has_image and image_mode == "hero":
         return "image_left" if orientation == "portrait" else "image_top"
+    if layout == "compare" and has_image and image_mode == "support":
+        return "classic"
     if layout == "process" and has_image and image_mode == "hero" and density["point_count"] >= 4:
         return "image_left" if orientation == "portrait" else "image_top"
+    if layout == "process" and has_image and image_mode == "support":
+        return "classic"
     if layout == "highlight" and has_image and image_mode == "hero" and density["point_count"] >= 3:
         return "image_left" if orientation == "portrait" else "image_top"
+    if layout == "highlight" and has_image and image_mode == "support":
+        return "classic"
+    if layout == "card" and has_image:
+        return "classic"
+    if layout in {"image_left", "image_top"} and not has_image:
+        return "classic"
     if layout in {"card", "compare", "process"} and density["very_dense"]:
         return "classic"
     if has_image and image_relevance in {"low", "none"} and layout in {"compare", "process", "card"}:
@@ -432,6 +452,56 @@ def _apply_layout_safety(layout: str, slide: dict, density: dict) -> str:
     if image_mode == "hero" and not has_image:
         return "classic"
     return layout
+
+
+def _decision_note_for_slide(slide: dict) -> str:
+    role = _normalize_role(slide)
+    if role == "chapter":
+        section = _clean_text(slide.get("section_title") or slide.get("title"))
+        return f"{section or '새 섹션'}으로 넘어가는 챕터 슬라이드입니다."
+
+    parts = []
+    kind = _clean_text(slide.get("content_kind"))
+    source_pages = _clean_text(slide.get("source_pages"))
+    layout = _normalize_layout(slide.get("layout"))
+    image_mode = _normalize_image_mode(slide.get("image_mode"))
+    image_relevance = _clean_text(slide.get("image_relevance")).lower() or "none"
+    image_choice_mode = _normalize_image_choice_mode(slide.get("image_choice_mode"))
+
+    if source_pages:
+        parts.append(f"근거 페이지 {source_pages}")
+    if kind == "compare":
+        parts.append("비교 설명에 맞춰 정리했습니다")
+    elif kind == "process":
+        parts.append("단계 흐름이 잘 보이도록 구성했습니다")
+    elif kind == "data":
+        parts.append("짧은 정보 조각이 한눈에 보이도록 구성했습니다")
+    elif kind == "case":
+        parts.append("사례 설명이 자연스럽게 이어지도록 구성했습니다")
+    else:
+        parts.append("일반 설명형 흐름으로 정리했습니다")
+
+    if image_choice_mode == "manual_none":
+        parts.append("이미지는 제외하고 텍스트 중심으로 유지합니다")
+    elif slide.get("image_asset_name"):
+        if image_choice_mode == "manual":
+            parts.append("사용자가 PDF 이미지를 직접 선택했습니다")
+        elif image_mode == "hero":
+            parts.append("PDF 이미지를 크게 보여주는 레이아웃을 선택했습니다")
+        elif image_mode == "support":
+            parts.append("본문 이해를 돕는 보조 이미지로 연결했습니다")
+        if image_relevance not in {"none", "manual"}:
+            parts.append(f"이미지 관련성 {image_relevance}")
+
+    if slide.get("split_origin"):
+        parts.append("내용 과밀로 분할된 슬라이드입니다")
+    elif slide.get("needs_split"):
+        parts.append(_clean_text(slide.get("split_reason")))
+
+    if layout in {"image_left", "image_top"}:
+        parts.append("이미지가 본문보다 더 잘 보이도록 비중을 높였습니다")
+
+    return " · ".join(part for part in parts if part)
 
 
 def _normalize_content_slide(slide: dict, content_index: int, total_content: int, selected_pages: list[int] | None):
@@ -446,6 +516,7 @@ def _normalize_content_slide(slide: dict, content_index: int, total_content: int
     slide["image_mode"] = _normalize_image_mode(slide.get("image_mode"))
     slide["image_relevance"] = _clean_text(slide.get("image_relevance")).lower() or "none"
     slide["image_orientation"] = _clean_text(slide.get("image_orientation")).lower() or ""
+    slide["image_choice_mode"] = _normalize_image_choice_mode(slide.get("image_choice_mode"))
     slide["variant_origin"] = _clean_text(slide.get("variant_origin"))
 
     if slide["role"] == "chapter":
@@ -458,6 +529,7 @@ def _normalize_content_slide(slide: dict, content_index: int, total_content: int
         slide["notes"] = _ensure_notes(slide)
         slide["needs_split"] = False
         slide["split_reason"] = ""
+        slide["decision_note"] = _decision_note_for_slide(slide)
         return slide
 
     slide["points"] = _dedupe_points(list(slide.get("points", [])), limit=6)
@@ -472,6 +544,8 @@ def _normalize_content_slide(slide: dict, content_index: int, total_content: int
     elif slide["content_kind"] == "compare":
         _build_compare_payload(slide)
 
+    slide["decision_note"] = _decision_note_for_slide(slide)
+
     return slide
 
 
@@ -480,21 +554,25 @@ def _normalize_non_content_slide(slide: dict):
     slide["type"] = slide_type
     slide["role"] = _normalize_role(slide)
     slide["variant_origin"] = _clean_text(slide.get("variant_origin"))
+    slide["decision_note"] = _clean_text(slide.get("decision_note"))
 
     if slide_type == "agenda":
         slide["items"] = _dedupe_points(list(slide.get("items", [])), limit=8)
         slide["title"] = _clean_text(slide.get("title")) or "목차"
+        slide["decision_note"] = slide["decision_note"] or "강의 전체 흐름을 먼저 파악하도록 목차를 정리했습니다."
         return slide
 
     if slide_type == "summary":
         slide["points"] = _dedupe_points(list(slide.get("points", [])), limit=6)
         slide["title"] = _clean_text(slide.get("title")) or "핵심 요약"
         slide["notes"] = _ensure_notes(slide)
+        slide["decision_note"] = slide["decision_note"] or "수업 마지막에 핵심 개념을 다시 확인하는 요약 슬라이드입니다."
         return slide
 
     slide["title"] = _clean_text(slide.get("title")) or "강의 교안"
     slide["subtitle"] = _clean_text(slide.get("subtitle"))
     slide["notes"] = _ensure_notes(slide)
+    slide["decision_note"] = slide["decision_note"] or "강의 시작을 안내하는 표지 슬라이드입니다."
     return slide
 
 
@@ -552,8 +630,10 @@ def build_outline(slides: list[dict]) -> list[dict]:
                 "image_page": slide.get("image_page"),
                 "image_mode": slide.get("image_mode", "none"),
                 "image_relevance": slide.get("image_relevance", "none"),
+                "image_choice_mode": slide.get("image_choice_mode", "auto"),
                 "needs_split": bool(slide.get("needs_split")),
                 "section_title": slide.get("section_title", ""),
+                "decision_note": slide.get("decision_note", ""),
             }
         )
     return outline

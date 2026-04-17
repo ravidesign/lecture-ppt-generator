@@ -25,7 +25,12 @@ load_dotenv()
 
 from core.claude_analyzer import analyze_pdf
 from core.history import add_record, get_history
-from core.pdf_parser import extract_pdf_images, parse_page_range, resolve_page_selection
+from core.pdf_parser import (
+    build_page_plan_preview,
+    extract_pdf_images,
+    parse_page_range,
+    resolve_page_selection,
+)
 from core.ppt_generator import (
     LEGACY_THEME_PRESET_MAP,
     PRESETS,
@@ -403,6 +408,7 @@ def _run_analysis_pipeline(
     enhance_scans: bool,
     page_range: str | None,
     extra_prompt: str | None,
+    lecture_goal: str | None,
     progress=None,
 ):
     analysis_pdf_path = pdf_path
@@ -421,6 +427,7 @@ def _run_analysis_pipeline(
 
         notify("resolve_page_selection", "사용할 페이지 범위를 정리하고 있습니다...")
         page_plan = resolve_page_selection(analysis_pdf_path, page_range or None, max_pages_per_chunk=100)
+        page_plan_preview = build_page_plan_preview(analysis_pdf_path, page_plan)
 
         try:
             notify("analyze_pdf_primary", "Claude AI가 슬라이드 초안을 만들고 있습니다...")
@@ -430,6 +437,7 @@ def _run_analysis_pipeline(
                 page_range=page_range or None,
                 extra_prompt=extra_prompt or None,
                 page_plan=page_plan,
+                lecture_goal=lecture_goal,
             )
         except UnicodeEncodeError:
             notify("analyze_pdf_ascii_safe_retry", "인코딩 안전 모드로 다시 분석하고 있습니다...")
@@ -440,6 +448,7 @@ def _run_analysis_pipeline(
                 extra_prompt=extra_prompt or None,
                 ascii_safe_mode=True,
                 page_plan=page_plan,
+                lecture_goal=lecture_goal,
             )
 
         notify("review_slides", "슬라이드 구조를 점검하고 있습니다...")
@@ -478,12 +487,14 @@ def _run_analysis_pipeline(
             "asset_count": len(assets),
             "uid": uid,
             "auto_slide_count": auto_slide_count,
+            "lecture_goal": lecture_goal or "standard",
             "page_plan": {
                 "mode": page_plan["mode"],
                 "page_hint": page_plan.get("page_hint", ""),
                 "selected_pages": page_plan["selected_pages"],
                 "selection_note": page_plan.get("selection_note", ""),
             },
+            "page_plan_preview": page_plan_preview,
             "ocr_available": OCR_AVAILABLE,
             "ocr_used": ocr_used,
             "ocr_error": ocr_error,
@@ -504,6 +515,7 @@ def _run_analyze_job(
     enhance_scans: bool,
     page_range: str | None,
     extra_prompt: str | None,
+    lecture_goal: str | None,
 ):
     current_stage = "queued"
 
@@ -522,6 +534,7 @@ def _run_analyze_job(
             enhance_scans,
             page_range,
             extra_prompt,
+            lecture_goal,
             progress=progress,
         )
         _update_analyze_job(
@@ -575,6 +588,7 @@ def api_analyze():
 
     page_range = request.form.get("page_range", "").strip()
     extra_prompt = request.form.get("extra_prompt", "").strip()
+    lecture_goal = request.form.get("lecture_goal", "standard").strip() or "standard"
 
     uid = uuid.uuid4().hex[:8]
     pdf_path = os.path.join(UPLOAD_DIR, f"{uid}.pdf")
@@ -589,6 +603,7 @@ def api_analyze():
             enhance_scans,
             page_range or None,
             extra_prompt or None,
+            lecture_goal,
         )
         return _json_response(result)
     except Exception as exc:
@@ -619,6 +634,7 @@ def api_analyze_start():
 
     page_range = request.form.get("page_range", "").strip()
     extra_prompt = request.form.get("extra_prompt", "").strip()
+    lecture_goal = request.form.get("lecture_goal", "standard").strip() or "standard"
 
     job_id = uuid.uuid4().hex[:8]
     pdf_path = _uploaded_pdf_path(job_id)
@@ -646,6 +662,7 @@ def api_analyze_start():
             enhance_scans,
             page_range or None,
             extra_prompt or None,
+            lecture_goal,
         ),
         daemon=True,
     )
@@ -673,6 +690,43 @@ def api_analyze_status(job_id):
         return _json_response({"error": "분석 작업을 찾을 수 없습니다."}, status=404)
 
     return _json_response(payload)
+
+
+@app.route("/api/page-plan-preview", methods=["POST"])
+def api_page_plan_preview():
+    if "file" not in request.files:
+        return _json_response({"error": "파일이 없습니다"}, status=400)
+
+    file = request.files["file"]
+    if not file.filename.lower().endswith(".pdf"):
+        return _json_response({"error": "PDF 파일만 지원합니다"}, status=400)
+
+    page_range = request.form.get("page_range", "").strip()
+    uid = uuid.uuid4().hex[:8]
+    pdf_path = _uploaded_pdf_path(uid)
+    file.save(pdf_path)
+
+    try:
+        page_plan = resolve_page_selection(pdf_path, page_range or None, max_pages_per_chunk=100)
+        preview = build_page_plan_preview(pdf_path, page_plan)
+        return _json_response(
+            {
+                "ok": True,
+                "page_plan": {
+                    "mode": page_plan["mode"],
+                    "page_hint": page_plan.get("page_hint", ""),
+                    "selected_pages": page_plan["selected_pages"],
+                    "selection_note": page_plan.get("selection_note", ""),
+                },
+                "preview": preview,
+            }
+        )
+    except Exception as exc:
+        error_id = _record_exception("api_page_plan_preview", exc)
+        return _json_response({"error": _safe_error_text(exc), "error_id": error_id}, status=500)
+    finally:
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
 
 
 @app.route("/api/presets")
@@ -758,8 +812,9 @@ def api_generate():
     design = _coerce_design(body)
     assets = body.get("assets", [])
     page_plan = body.get("page_plan", {})
+    page_plan_preview = body.get("page_plan_preview", {})
+    lecture_goal = body.get("lecture_goal", "standard")
     pdf_name = body.get("pdf_name", "강의교안")
-    base_name = os.path.splitext(pdf_name)[0]
 
     if not slides_data:
         return jsonify({"error": "슬라이드 데이터 없음"}), 400
@@ -780,6 +835,8 @@ def api_generate():
                 "design": design,
                 "assets": assets,
                 "page_plan": page_plan,
+                "page_plan_preview": page_plan_preview,
+                "lecture_goal": lecture_goal,
                 "pdf_name": pdf_name,
                 "download_name": download_name,
             },
@@ -795,6 +852,8 @@ def api_generate():
                 "slide_count": len(prepared_slides),
                 "preset": preset_name,
                 "download_name": download_name,
+                "page_plan_preview": page_plan_preview,
+                "lecture_goal": lecture_goal,
             }
         )
     except Exception as exc:
@@ -819,6 +878,8 @@ def api_slides(uid):
             payload["outline"] = build_outline(payload.get("slides", []))
         if not payload.get("quality"):
             payload["quality"] = build_quality_summary(payload.get("slides", []))
+        payload.setdefault("lecture_goal", "standard")
+        payload.setdefault("page_plan_preview", {})
         return jsonify(payload)
     except Exception as exc:
         error_id = _record_exception("api_slides", exc)
@@ -837,6 +898,7 @@ def api_review_slides():
 
     assets = body.get("assets", [])
     page_plan = body.get("page_plan", {})
+    page_plan_preview = body.get("page_plan_preview", {})
     try:
         prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan.get("selected_pages"))
         return jsonify(
@@ -845,6 +907,7 @@ def api_review_slides():
                 "slides": prepared["slides"],
                 "outline": prepared["outline"],
                 "quality": prepared["quality"],
+                "page_plan_preview": page_plan_preview,
             }
         )
     except Exception as exc:
@@ -872,6 +935,8 @@ def api_update_slides(uid):
     design = body.get("design", payload.get("design") or {"preset": "corporate"})
     assets = body.get("assets", payload.get("assets", []))
     page_plan = body.get("page_plan", payload.get("page_plan", {}))
+    page_plan_preview = body.get("page_plan_preview", payload.get("page_plan_preview", {}))
+    lecture_goal = body.get("lecture_goal", payload.get("lecture_goal", "standard"))
     pdf_name = body.get("pdf_name", payload.get("pdf_name", "강의교안"))
 
     download_name = _sanitize_download_name(
@@ -890,6 +955,8 @@ def api_update_slides(uid):
             "design": design,
             "assets": assets,
             "page_plan": page_plan,
+            "page_plan_preview": page_plan_preview,
+            "lecture_goal": lecture_goal,
             "pdf_name": pdf_name,
             "download_name": download_name,
         }
@@ -904,6 +971,8 @@ def api_update_slides(uid):
                 "outline": prepared["outline"],
                 "quality": prepared["quality"],
                 "page_plan": page_plan,
+                "page_plan_preview": page_plan_preview,
+                "lecture_goal": lecture_goal,
             }
         )
     except Exception as exc:
@@ -920,11 +989,11 @@ def api_slide_variants(uid, slide_index):
     if not payload:
         return jsonify({"error": "not found"}), 404
 
-    slides = payload.get("slides", [])
+    body = request.get_json(silent=True) or {}
+    slides = body.get("slides", payload.get("slides", []))
     if slide_index < 0 or slide_index >= len(slides):
         return jsonify({"error": "invalid slide index"}), 400
 
-    body = request.get_json(silent=True) or {}
     design = body.get("design", payload.get("design") or {"preset": "corporate"})
     assets = body.get("assets", payload.get("assets", []))
     page_plan = body.get("page_plan", payload.get("page_plan", {}))
@@ -958,11 +1027,11 @@ def api_apply_slide_variant(uid, slide_index):
     if not payload:
         return jsonify({"error": "not found"}), 404
 
-    slides = payload.get("slides", [])
+    body = request.get_json(silent=True) or {}
+    slides = body.get("slides", payload.get("slides", []))
     if slide_index < 0 or slide_index >= len(slides):
         return jsonify({"error": "invalid slide index"}), 400
 
-    body = request.get_json(silent=True) or {}
     variant_slide = body.get("slide")
     if not isinstance(variant_slide, dict):
         return jsonify({"error": "variant slide missing"}), 400
@@ -970,6 +1039,8 @@ def api_apply_slide_variant(uid, slide_index):
     design = body.get("design", payload.get("design") or {"preset": "corporate"})
     assets = body.get("assets", payload.get("assets", []))
     page_plan = body.get("page_plan", payload.get("page_plan", {}))
+    page_plan_preview = body.get("page_plan_preview", payload.get("page_plan_preview", {}))
+    lecture_goal = body.get("lecture_goal", payload.get("lecture_goal", "standard"))
     pdf_name = body.get("pdf_name", payload.get("pdf_name", "강의교안"))
     download_name = _sanitize_download_name(
         body.get("download_name"),
@@ -988,6 +1059,8 @@ def api_apply_slide_variant(uid, slide_index):
             "design": design,
             "assets": assets,
             "page_plan": page_plan,
+            "page_plan_preview": page_plan_preview,
+            "lecture_goal": lecture_goal,
             "pdf_name": pdf_name,
             "download_name": download_name,
         }
@@ -1001,6 +1074,8 @@ def api_apply_slide_variant(uid, slide_index):
                 "quality": prepared["quality"],
                 "download_name": download_name,
                 "page_plan": page_plan,
+                "page_plan_preview": page_plan_preview,
+                "lecture_goal": lecture_goal,
             }
         )
     except Exception as exc:

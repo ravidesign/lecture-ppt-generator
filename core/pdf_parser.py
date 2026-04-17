@@ -163,6 +163,33 @@ def _extract_page_texts(pdf_path: str) -> list[str]:
         doc.close()
 
 
+def _first_heading_from_text(text: str) -> str:
+    for raw_line in str(text or "").splitlines()[:18]:
+        line = " ".join(raw_line.split()).strip()
+        if len(line) < 3:
+            continue
+        if re.fullmatch(r"[\d\s./-]+", line):
+            continue
+        return line[:120]
+    return ""
+
+
+def _sample_preview_pages(page_numbers: list[int], max_items: int = 6) -> list[int]:
+    numbers = sorted({int(page) for page in page_numbers if int(page) >= 1})
+    if len(numbers) <= max_items:
+        return numbers
+
+    if max_items <= 1:
+        return [numbers[0]]
+
+    sampled = []
+    last_index = len(numbers) - 1
+    for step in range(max_items):
+        index = round((last_index * step) / (max_items - 1))
+        sampled.append(numbers[index])
+    return sorted(dict.fromkeys(sampled))
+
+
 def _extract_query_tokens(query: str) -> list[str]:
     normalized = _normalize_text(query)
     tokens = []
@@ -376,6 +403,54 @@ def resolve_page_selection(pdf_path: str, page_hint: str | None, max_pages_per_c
         "total_pages": total_pages,
         "selection_note": f"사용자 요청 파트: {hint}",
         "chunk_size": max_pages_per_chunk,
+    }
+
+
+def build_page_plan_preview(pdf_path: str, page_plan: dict, max_headings: int = 6) -> dict:
+    selected_pages = sorted({int(page) for page in (page_plan or {}).get("selected_pages", []) if int(page) >= 1})
+    total_pages = int((page_plan or {}).get("total_pages") or 0)
+    if not selected_pages or total_pages <= 0:
+        return {
+            "mode": str((page_plan or {}).get("mode") or "all"),
+            "page_summary": "",
+            "selected_count": 0,
+            "selection_note": str((page_plan or {}).get("selection_note") or ""),
+            "headings": [],
+            "warning": "선택된 페이지 정보를 확인할 수 없습니다.",
+        }
+
+    doc = fitz.open(pdf_path)
+    try:
+        headings = []
+        for page_number in _sample_preview_pages(selected_pages, max_items=max_headings):
+            try:
+                text = doc.load_page(page_number - 1).get_text("text") or ""
+            except Exception:
+                text = ""
+            heading = _first_heading_from_text(text)
+            headings.append(
+                {
+                    "page": page_number,
+                    "heading": heading or f"{page_number}페이지 내용",
+                }
+            )
+    finally:
+        doc.close()
+
+    mode = str((page_plan or {}).get("mode") or "all")
+    warning = ""
+    if mode == "hint_only":
+        warning = "요청 문구를 정확히 매칭하지 못해 전체 PDF 범위를 사용할 가능성이 높습니다. 분석 전에 범위를 다시 확인해 주세요."
+    elif mode == "all" and str((page_plan or {}).get("page_hint") or "").strip():
+        warning = "요청 문구가 범위 제한으로 이어지지 않아 전체 PDF 범위를 사용할 예정입니다."
+
+    return {
+        "mode": mode,
+        "page_summary": format_page_ranges(selected_pages),
+        "selected_count": len(selected_pages),
+        "selection_note": str((page_plan or {}).get("selection_note") or ""),
+        "headings": headings,
+        "warning": warning,
     }
 
 

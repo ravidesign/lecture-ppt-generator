@@ -22,6 +22,7 @@ STOPWORDS = {
     "기본",
     "사용",
 }
+VALID_IMAGE_CHOICE_MODES = {"auto", "manual", "manual_none"}
 
 
 def _asset_key(asset: dict) -> tuple[str, str]:
@@ -116,6 +117,20 @@ def _image_orientation(asset: dict | None) -> str:
     if ratio <= 0.82:
         return "portrait"
     return "square"
+
+
+def _image_choice_mode(slide: dict) -> str:
+    mode = str(slide.get("image_choice_mode") or "auto").strip().lower()
+    return mode if mode in VALID_IMAGE_CHOICE_MODES else "auto"
+
+
+def _clear_slide_image(slide: dict):
+    slide.pop("image_bundle_uid", None)
+    slide.pop("image_asset_name", None)
+    slide.pop("image_page", None)
+    slide["image_relevance"] = "none"
+    slide["image_mode"] = "none"
+    slide["image_orientation"] = ""
 
 
 def _relevance_label(asset: dict, source_pages: list[int], slide_keywords: set[str]) -> str:
@@ -213,11 +228,33 @@ def attach_pdf_images_to_slides(slides_data: list[dict], media_assets: list[dict
             slide["image_relevance"] = "none"
             continue
 
+        choice_mode = _image_choice_mode(slide)
+        if choice_mode == "manual_none":
+            _clear_slide_image(slide)
+            slide["image_choice_mode"] = "manual_none"
+            continue
+
         source_pages = _parse_source_pages(slide.get("source_pages", ""), max_page)
         slide_keywords = _slide_keywords(slide)
         current_key = _slide_key(slide)
         chosen_asset = assets_by_key.get(current_key)
         relevance = _relevance_label(chosen_asset, source_pages, slide_keywords) if chosen_asset else "none"
+
+        if choice_mode == "manual":
+            if chosen_asset:
+                mode_relevance = relevance if relevance in {"high", "medium"} else "medium"
+                slide["image_bundle_uid"] = chosen_asset["bundle_uid"]
+                slide["image_asset_name"] = chosen_asset["asset_name"]
+                slide["image_page"] = chosen_asset.get("page")
+                slide["image_relevance"] = "manual"
+                slide["image_orientation"] = _image_orientation(chosen_asset)
+                slide["image_mode"] = _image_mode_for_slide(slide, chosen_asset, mode_relevance)
+                slide["image_choice_mode"] = "manual"
+                used_asset_keys.add(_asset_key(chosen_asset))
+            else:
+                _clear_slide_image(slide)
+                slide["image_choice_mode"] = "manual_none"
+            continue
 
         if not chosen_asset or relevance == "none":
             available_assets = [
@@ -249,20 +286,15 @@ def attach_pdf_images_to_slides(slides_data: list[dict], media_assets: list[dict
             relevance = _relevance_label(chosen_asset, source_pages, slide_keywords) if chosen_asset else "none"
 
         if not chosen_asset or relevance in {"none", "low"}:
-            slide.pop("image_bundle_uid", None)
-            slide.pop("image_asset_name", None)
-            slide.pop("image_page", None)
-            slide["image_relevance"] = "none"
-            slide["image_mode"] = "none"
-            slide["image_orientation"] = ""
+            _clear_slide_image(slide)
+            slide["image_choice_mode"] = "auto"
             continue
 
         if source_pages:
             closest_page_distance = min(abs(int(chosen_asset.get("page") or 0) - page) for page in source_pages)
             if closest_page_distance > 1:
-                slide["image_relevance"] = "none"
-                slide["image_mode"] = "none"
-                slide["image_orientation"] = ""
+                _clear_slide_image(slide)
+                slide["image_choice_mode"] = "auto"
                 continue
 
         slide["image_bundle_uid"] = chosen_asset["bundle_uid"]
@@ -271,6 +303,7 @@ def attach_pdf_images_to_slides(slides_data: list[dict], media_assets: list[dict
         slide["image_relevance"] = relevance
         slide["image_orientation"] = _image_orientation(chosen_asset)
         slide["image_mode"] = _image_mode_for_slide(slide, chosen_asset, relevance)
+        slide["image_choice_mode"] = "auto"
         used_asset_keys.add(_asset_key(chosen_asset))
 
     return slides

@@ -68,6 +68,16 @@ select.editor-input{appearance:none;-webkit-appearance:none;padding-right:40px;b
 .variant-preview{border-radius:10px;overflow:hidden;background:#0F172A;position:relative;height:118px}
 .variant-preview-inner{position:absolute;top:0;left:0;width:960px;height:540px;transform-origin:top left;transform:scale(.123)}
 .variant-empty{font-size:11px;color:#93A3B8;line-height:1.5}
+.note-box{border:1px solid rgba(255,255,255,0.12);background:#111827;border-radius:10px;padding:10px 12px;font-size:12px;color:#C8D1DF;line-height:1.6}
+.candidate-list{display:grid;gap:8px}
+.candidate-card{border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:#111827;padding:10px;display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;align-items:start}
+.candidate-thumb{width:88px;height:66px;border-radius:8px;background:#0F172A;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.candidate-thumb img{width:100%;height:100%;object-fit:contain}
+.candidate-meta{display:grid;gap:5px;min-width:0}
+.candidate-title{font-size:12px;font-weight:700;color:#E5E7EB}
+.candidate-sub{font-size:11px;color:#93A3B8;line-height:1.5}
+.candidate-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.candidate-chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:700;background:#243247;color:#B8C5D8;width:max-content}
 .status{display:none;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}
 .status.ok{display:block;background:#12261B;color:#86EFAC}
 .status.err{display:block;background:#2A1515;color:#FCA5A5}
@@ -168,6 +178,19 @@ select.editor-input{appearance:none;-webkit-appearance:none;padding-right:40px;b
             <label for="sourcePagesInput">근거 페이지</label>
             <input type="text" id="sourcePagesInput" class="editor-input" placeholder="예: 12-14">
             <div class="field-help">이 슬라이드가 참고한 PDF 페이지 범위입니다. 이미지와 원문 검수에 활용됩니다.</div>
+          </div>
+
+          <div class="field" id="decisionField">
+            <label>현재 구성 판단 근거</label>
+            <div class="note-box" id="decisionNoteBox">현재 슬라이드에 대한 판단 근거를 불러오는 중입니다.</div>
+          </div>
+
+          <div class="field" id="imageCandidatesField">
+            <label>PDF 이미지 후보</label>
+            <div class="field-help">현재 슬라이드와 가까운 PDF 이미지 후보를 보여줍니다. 자동 유지, 직접 고정, 이미지 제외를 선택할 수 있습니다.</div>
+            <div class="candidate-list" id="imageCandidatesList">
+              <div class="variant-empty">슬라이드를 고르면 후보 이미지가 여기에 나타납니다.</div>
+            </div>
           </div>
 
           <div class="field" id="listField">
@@ -494,6 +517,59 @@ function slideImageAsset(data) {
   return (assets || []).find(asset =>
     asset.bundle_uid === data.image_bundle_uid && asset.asset_name === data.image_asset_name
   ) || null;
+}
+
+function slideImageChoiceMode(data) {
+  const mode = String(data?.image_choice_mode || 'auto').trim().toLowerCase();
+  return ['auto', 'manual', 'manual_none'].includes(mode) ? mode : 'auto';
+}
+
+function parseSourcePageList(value) {
+  const numbers = String(value || '').match(/\d+/g) || [];
+  return numbers.map(Number).filter(num => Number.isFinite(num) && num > 0);
+}
+
+function assetTextTokens(asset) {
+  return `${asset?.page_heading || ''} ${asset?.page_text_hint || ''}`
+    .toLowerCase()
+    .match(/[a-z0-9가-힣]{2,}/g) || [];
+}
+
+function slideTextTokens(slide) {
+  return `${slide?.title || ''} ${slide?.subtitle || ''} ${(slide?.points || []).join(' ')} ${slide?.notes || ''}`
+    .toLowerCase()
+    .match(/[a-z0-9가-힣]{2,}/g) || [];
+}
+
+function assetCandidateScore(slide, asset) {
+  const slidePages = parseSourcePageList(slide?.source_pages || '');
+  const assetPage = Number(asset?.page || 0);
+  const distance = slidePages.length ? Math.min(...slidePages.map(page => Math.abs(page - assetPage))) : 99;
+  const overlap = new Set(slideTextTokens(slide).filter(token => assetTextTokens(asset).includes(token))).size;
+  const coverage = Number(asset?.coverage_ratio || 0);
+  const displayArea = Number(asset?.display_area || 0);
+  const sizeScore = Math.min(4, Math.round(displayArea / 30000) + (coverage >= 0.06 ? 1 : 0));
+  const relevance = distance === 0 ? 5 : distance === 1 ? 3 : distance <= 2 ? 1 : -2;
+  return overlap * 3 + sizeScore + relevance;
+}
+
+function candidateRelevanceLabel(score) {
+  if (score >= 9) return '높음';
+  if (score >= 5) return '보통';
+  return '낮음';
+}
+
+function nearbyImageCandidates(slide) {
+  const currentKey = `${slide?.image_bundle_uid || ''}/${slide?.image_asset_name || ''}`;
+  return (assets || [])
+    .map(asset => ({
+      ...asset,
+      score: assetCandidateScore(slide, asset),
+      active: `${asset.bundle_uid || ''}/${asset.asset_name || ''}` === currentKey,
+    }))
+    .filter(asset => asset.score >= 1 || asset.active)
+    .sort((a, b) => (b.active - a.active) || (b.score - a.score) || (Number(a.page || 0) - Number(b.page || 0)))
+    .slice(0, 4);
 }
 
 function imageOrientation(asset) {
@@ -939,6 +1015,7 @@ function renderVariantOptions() {
         <div>
           <div class="variant-card-title">${esc(variant.label || `시안 ${index + 1}`)}</div>
           <div class="variant-card-meta">${esc(CONTENT_LAYOUT_LABELS[resolveContentLayout(variant.slide, resolvedTheme)] || '자동 추천')} · ${esc(variant.slide.image_mode || 'none')}</div>
+          ${variant.rationale ? `<div class="variant-card-meta" style="margin-top:4px;line-height:1.5">${esc(variant.rationale)}</div>` : ''}
         </div>
         <button type="button" class="tbtn" data-apply-variant="${escAttr(variant.id || '')}">이 시안 적용</button>
       </div>
@@ -947,6 +1024,74 @@ function renderVariantOptions() {
       </div>
     </div>
   `).join('');
+}
+
+function renderImageCandidates() {
+  const slide = slides[cur] || {};
+  const role = slideRole(slide);
+  const field = document.getElementById('imageCandidatesField');
+  const list = document.getElementById('imageCandidatesList');
+  const noteBox = document.getElementById('decisionNoteBox');
+  noteBox.textContent = slide.decision_note || '현재 슬라이드 내용을 기반으로 레이아웃과 이미지 사용 여부를 판단했습니다.';
+
+  if ((slide.type || 'content') !== 'content' || role === 'chapter') {
+    field.style.display = 'none';
+    return;
+  }
+
+  field.style.display = 'flex';
+  const choiceMode = slideImageChoiceMode(slide);
+  const candidates = nearbyImageCandidates(slide);
+  const currentAsset = slideImageAsset(slide);
+
+  const manualNoneCard = `
+    <div class="candidate-card">
+      <div class="candidate-thumb"><div class="variant-empty" style="padding:8px;text-align:center">이미지 없이<br>텍스트 중심</div></div>
+      <div class="candidate-meta">
+        <div class="candidate-title">이미지 제외</div>
+        <div class="candidate-sub">현재 슬라이드는 이미지를 빼고 텍스트 전달력을 우선합니다.</div>
+        <div class="candidate-actions">
+          <span class="candidate-chip">${choiceMode === 'manual_none' ? '현재 적용됨' : '선택 가능'}</span>
+          <button type="button" class="tbtn" data-image-mode="manual_none">이미지 제외 적용</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const autoCard = `
+    <div class="candidate-card">
+      <div class="candidate-thumb"><div class="variant-empty" style="padding:8px;text-align:center">자동 추천</div></div>
+      <div class="candidate-meta">
+        <div class="candidate-title">자동 추천 유지</div>
+        <div class="candidate-sub">근거 페이지와 관련성을 기준으로 이미지를 다시 연결합니다.</div>
+        <div class="candidate-actions">
+          <span class="candidate-chip">${choiceMode === 'auto' ? '현재 적용됨' : '선택 가능'}</span>
+          <button type="button" class="tbtn" data-image-mode="auto">자동 추천으로 되돌리기</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const candidateCards = candidates.map(asset => {
+    const url = `/api/pdf-asset/${encodeURIComponent(asset.bundle_uid)}/${encodeURIComponent(asset.asset_name)}`;
+    const active = asset.active && choiceMode !== 'manual_none';
+    return `
+      <div class="candidate-card">
+        <div class="candidate-thumb"><img src="${url}" alt="candidate"></div>
+        <div class="candidate-meta">
+          <div class="candidate-title">PDF ${esc(asset.page || '')}p ${active ? '· 현재 연결됨' : ''}</div>
+          <div class="candidate-sub">${esc(asset.page_heading || '대표 제목 없음')}</div>
+          <div class="candidate-actions">
+            <span class="candidate-chip">관련성 ${esc(candidateRelevanceLabel(asset.score))}</span>
+            <span class="candidate-chip">${esc(imageOrientation(asset))}</span>
+            <button type="button" class="tbtn" data-image-asset="${escAttr(`${asset.bundle_uid}/${asset.asset_name}`)}">이 이미지 고정</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.innerHTML = [autoCard, candidateCards || (currentAsset ? '' : '<div class="variant-empty">적합한 후보 이미지를 찾지 못했습니다.</div>'), manualNoneCard].join('');
 }
 
 function parseLines(value) {
@@ -968,6 +1113,7 @@ function fillEditor() {
 
   const subtitleField = document.getElementById('subtitleField');
   const layoutField = document.getElementById('layoutField');
+  const decisionField = document.getElementById('decisionField');
   const sourcePagesField = document.getElementById('sourcePagesInput').parentElement;
   const listField = document.getElementById('listField');
   const listLabel = document.getElementById('listLabel');
@@ -976,6 +1122,7 @@ function fillEditor() {
 
   subtitleField.style.display = (type === 'title' || type === 'content') ? 'flex' : 'none';
   layoutField.style.display = (type === 'content' && role !== 'chapter') ? 'flex' : 'none';
+  decisionField.style.display = type === 'content' ? 'flex' : 'none';
   sourcePagesField.style.display = (type === 'content' && role !== 'chapter') ? 'flex' : 'none';
   document.getElementById('layoutSelect').value = type === 'content'
     ? normalizeLayoutId(slide.layout || 'auto')
@@ -1003,6 +1150,7 @@ function fillEditor() {
       : '한 줄마다 하나의 포인트로 저장됩니다.';
     listInput.value = (slide.points || []).join('\n');
   }
+  renderImageCandidates();
 }
 
 function captureEditorToSlides() {
@@ -1054,12 +1202,63 @@ function captureEditorToSlides() {
   if (notes) current.notes = notes;
   else delete current.notes;
 
+  if (!current.image_choice_mode) current.image_choice_mode = 'auto';
   slides[cur] = current;
 }
 
 function refreshCurrentEditor() {
   renderCurrentSlide();
   fillEditor();
+}
+
+function setCurrentSlideImageChoice(mode, assetKey = '') {
+  if (!slides.length) return;
+  captureEditorToSlides();
+  const slide = { ...(slides[cur] || {}) };
+  if (mode === 'manual_none') {
+    delete slide.image_bundle_uid;
+    delete slide.image_asset_name;
+    delete slide.image_page;
+    slide.image_mode = 'none';
+    slide.image_relevance = 'none';
+    slide.image_orientation = '';
+    slide.image_choice_mode = 'manual_none';
+  } else if (mode === 'auto') {
+    const best = nearbyImageCandidates(slide).find(item => !item.active) || nearbyImageCandidates(slide)[0];
+    if (best) {
+      slide.image_bundle_uid = best.bundle_uid;
+      slide.image_asset_name = best.asset_name;
+      slide.image_page = best.page;
+      slide.image_orientation = imageOrientation(best);
+      slide.image_mode = best.score >= 9 ? 'hero' : 'support';
+      slide.image_relevance = best.score >= 9 ? 'high' : (best.score >= 5 ? 'medium' : 'low');
+    } else {
+      delete slide.image_bundle_uid;
+      delete slide.image_asset_name;
+      delete slide.image_page;
+      slide.image_mode = 'none';
+      slide.image_relevance = 'none';
+      slide.image_orientation = '';
+    }
+    slide.image_choice_mode = 'auto';
+  } else if (mode === 'manual') {
+    const [bundleUid, assetName] = String(assetKey || '').split('/');
+    const asset = (assets || []).find(item => item.bundle_uid === bundleUid && item.asset_name === assetName);
+    if (!asset) return;
+    const pointCount = (slide.points || []).filter(Boolean).length;
+    slide.image_bundle_uid = asset.bundle_uid;
+    slide.image_asset_name = asset.asset_name;
+    slide.image_page = asset.page;
+    slide.image_orientation = imageOrientation(asset);
+    slide.image_mode = pointCount <= 4 ? 'hero' : (slide.image_mode === 'hero' ? 'hero' : 'support');
+    slide.image_relevance = 'manual';
+    slide.image_choice_mode = 'manual';
+  }
+  slides[cur] = slide;
+  refreshCurrentEditor();
+  setEditorStatus('ok', mode === 'manual'
+    ? '현재 슬라이드에 PDF 이미지를 직접 고정했습니다.'
+    : (mode === 'manual_none' ? '현재 슬라이드를 이미지 없이 유지하도록 설정했습니다.' : '이미지 자동 추천 모드로 되돌렸습니다.'));
 }
 
 function goTo(index) {
@@ -1086,6 +1285,7 @@ async function requestVariants() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         slide: currentSlide,
+        slides,
         design,
         assets,
         page_plan: pagePlan,
@@ -1117,6 +1317,7 @@ async function applyVariantById(variantId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         slide: chosen.slide,
+        slides,
         design,
         assets,
         page_plan: pagePlan,
@@ -1246,6 +1447,17 @@ document.getElementById('variantGrid').addEventListener('click', e => {
   const button = e.target.closest('[data-apply-variant]');
   if (!button) return;
   applyVariantById(button.getAttribute('data-apply-variant'));
+});
+document.getElementById('imageCandidatesList').addEventListener('click', e => {
+  const assetButton = e.target.closest('[data-image-asset]');
+  if (assetButton) {
+    setCurrentSlideImageChoice('manual', assetButton.getAttribute('data-image-asset'));
+    return;
+  }
+  const modeButton = e.target.closest('[data-image-mode]');
+  if (modeButton) {
+    setCurrentSlideImageChoice(modeButton.getAttribute('data-image-mode'));
+  }
 });
 
 document.addEventListener('keydown', e => {

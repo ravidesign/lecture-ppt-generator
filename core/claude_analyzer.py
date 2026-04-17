@@ -67,6 +67,14 @@ ANTHROPIC_CONNECT_TIMEOUT = 20.0
 ANTHROPIC_READ_TIMEOUT = 660.0
 ANTHROPIC_WRITE_TIMEOUT = 60.0
 ANTHROPIC_POOL_TIMEOUT = 60.0
+LECTURE_GOAL_HINTS = {
+    "standard": "Build a balanced lecture deck for a normal class session.",
+    "intro": "Optimize for first-time learners: define terms clearly, reduce jargon, and use intuitive explanations.",
+    "exam": "Optimize for exam prep: emphasize definitions, distinctions, high-yield facts, and memorization-friendly summaries.",
+    "practice": "Optimize for practical teaching: include workflows, applied examples, and step-by-step reasoning where relevant.",
+    "theory": "Optimize for theory-heavy teaching: focus on principles, structures, mechanisms, and conceptual connections.",
+    "briefing": "Optimize for a concise briefing: keep slides tighter, conclusion-oriented, and decision-friendly.",
+}
 
 
 def _load_json(raw_text: str):
@@ -146,7 +154,13 @@ def _build_client() -> anthropic.Anthropic:
     )
 
 
-def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> str:
+def _build_slide_request(
+    slide_count: int | None,
+    page_plan: dict,
+    extra_prompt: str | None,
+    ascii_safe_mode: bool = False,
+    lecture_goal: str | None = None,
+) -> str:
     page_summary = format_page_ranges(page_plan["selected_pages"])
     if slide_count is None:
         slide_instruction = (
@@ -166,6 +180,10 @@ def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt:
         "Keep the lecture tightly focused on the selected chapter/part instead of broadening back out to the whole PDF.",
         "Prefer a lecture-ready structure that uses images and diagrams from the PDF when helpful.",
     ]
+
+    goal_hint = LECTURE_GOAL_HINTS.get(str(lecture_goal or "standard").strip().lower())
+    if goal_hint:
+        lines.append(f"Lecture goal: {goal_hint}")
 
     if page_summary:
         lines.append(f"Selected pages: {page_summary}")
@@ -263,7 +281,14 @@ def _request_text_json(client, system_prompt: str, user_text: str, max_tokens: i
     return _load_json(_message_text(final_message))
 
 
-def _summarize_large_pdf(client, pdf_path: str, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> list[dict]:
+def _summarize_large_pdf(
+    client,
+    pdf_path: str,
+    page_plan: dict,
+    extra_prompt: str | None,
+    ascii_safe_mode: bool = False,
+    lecture_goal: str | None = None,
+) -> list[dict]:
     chunk_summaries = []
     for chunk_index, pages in enumerate(chunk_pages(page_plan["selected_pages"], page_plan["chunk_size"]), start=1):
         chunk_pdf = extract_pages_as_bytes(pdf_path, pages)
@@ -273,6 +298,9 @@ def _summarize_large_pdf(client, pdf_path: str, page_plan: dict, extra_prompt: s
             "Summarize this chunk into JSON for lecture planning.\n"
             "Stay focused on the selected pages only and do not reintroduce topics from excluded parts of the PDF."
         )
+        goal_hint = LECTURE_GOAL_HINTS.get(str(lecture_goal or "standard").strip().lower())
+        if goal_hint:
+            chunk_text += f"\nLecture goal: {goal_hint}"
         if page_plan.get("selection_note"):
             if ascii_safe_mode or _contains_non_ascii(page_plan.get("selection_note")):
                 chunk_text += "\nA local topic-selection hint was applied before chunk analysis. Remain tightly scoped to the selected chapter/part."
@@ -310,6 +338,7 @@ def analyze_pdf(
     extra_prompt: str = None,
     ascii_safe_mode: bool = False,
     page_plan: dict | None = None,
+    lecture_goal: str | None = None,
 ) -> list:
     """PDF → Claude API → 슬라이드 JSON"""
     client = _build_client()
@@ -317,11 +346,30 @@ def analyze_pdf(
 
     if len(page_plan["selected_pages"]) <= page_plan["chunk_size"]:
         pdf_bytes = extract_pages_as_bytes(pdf_path, page_plan["selected_pages"])
-        user_text = _build_slide_request(slide_count, page_plan, extra_prompt, ascii_safe_mode=ascii_safe_mode)
+        user_text = _build_slide_request(
+            slide_count,
+            page_plan,
+            extra_prompt,
+            ascii_safe_mode=ascii_safe_mode,
+            lecture_goal=lecture_goal,
+        )
         return _request_pdf_json(client, pdf_bytes, FINAL_SYSTEM_PROMPT, user_text, max_tokens=12000)
 
-    chunk_summaries = _summarize_large_pdf(client, pdf_path, page_plan, extra_prompt, ascii_safe_mode=ascii_safe_mode)
-    slide_request = _build_slide_request(slide_count, page_plan, extra_prompt, ascii_safe_mode=ascii_safe_mode)
+    chunk_summaries = _summarize_large_pdf(
+        client,
+        pdf_path,
+        page_plan,
+        extra_prompt,
+        ascii_safe_mode=ascii_safe_mode,
+        lecture_goal=lecture_goal,
+    )
+    slide_request = _build_slide_request(
+        slide_count,
+        page_plan,
+        extra_prompt,
+        ascii_safe_mode=ascii_safe_mode,
+        lecture_goal=lecture_goal,
+    )
     final_text = (
         f"{slide_request}\n\n"
         "Below are chunked lecture-planning summaries from the same PDF. "

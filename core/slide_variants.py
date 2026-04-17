@@ -116,6 +116,7 @@ def generate_slide_variants(
             {
                 "id": blueprint["id"],
                 "label": blueprint["label"],
+                "rationale": variant_slide.get("decision_note", ""),
                 "slide": variant_slide,
                 "outline": build_outline(final["slides"]),
                 "quality": build_quality_summary(final["slides"]),
