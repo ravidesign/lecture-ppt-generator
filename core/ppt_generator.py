@@ -3,13 +3,14 @@ import os
 from PIL import Image
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import MSO_AUTO_SIZE, MSO_VERTICAL_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
 
 SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
 
 PRESETS = {
     "corporate": {
@@ -239,6 +240,12 @@ def _tb(
     tf = txb.text_frame
     tf.clear()
     tf.word_wrap = wrap
+    tf.auto_size = MSO_AUTO_SIZE.NONE
+    tf.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
+    tf.margin_left = 0
+    tf.margin_right = 0
+    tf.margin_top = 0
+    tf.margin_bottom = 0
     p = tf.paragraphs[0]
     p.alignment = align
     p.space_before = Pt(0)
@@ -250,6 +257,34 @@ def _tb(
     run.font.color.rgb = color
     run.font.name = font_name or "Malgun Gothic"
     return txb
+
+
+def _estimate_text_lines(text, width: float, size: int) -> int:
+    raw = str(text or "").strip()
+    if not raw:
+        return 1
+
+    per_line = max(int((width * 72) / max(size * 0.92, 1)), 8)
+    total_lines = 0
+    for line in raw.splitlines() or [raw]:
+        cleaned = line.strip() or " "
+        total_lines += max(1, (len(cleaned) + per_line - 1) // per_line)
+    return min(max(total_lines, 1), 8)
+
+
+def _estimate_text_height(text, width: float, size: int, minimum: float = 0.46) -> float:
+    lines = _estimate_text_lines(text, width, size)
+    line_height = max((size * 1.35) / 72, 0.22)
+    return max(minimum, lines * line_height + 0.06)
+
+
+def _responsive_text_size(text, base_size: int, minimum: int, step: int = 22) -> int:
+    penalty = max(0, (len(str(text or "").strip()) - 40) // step)
+    return max(minimum, base_size - penalty)
+
+
+def _bullet_spacing(metrics: dict) -> float:
+    return max(0.18, min(metrics["gap"] - 0.54, 0.42))
 
 
 def _set_bg(slide, color):
@@ -499,7 +534,9 @@ def _add_bullet(slide, x, y, pt, t, index, width=12.0, size=15):
         _oval(slide, bullet_x, y + 0.09, 0.21, 0.21, t["accent"])
 
     text_width = max(width - (text_x - x), 0.5)
-    _tb(slide, text_x, y, text_width, 0.75, pt, size, color=t["text"], font_name=font_name)
+    text_height = _estimate_text_height(pt, text_width, size, minimum=0.48)
+    _tb(slide, text_x, y, text_width, text_height, pt, size, color=t["text"], font_name=font_name)
+    return text_height
 
 
 def _add_footer(slide, slide_index: int, t: dict):
@@ -588,6 +625,29 @@ def _resolve_slide_image_asset(data: dict, media_assets: list[dict] | None):
         if asset.get("bundle_uid") == bundle_uid and asset.get("asset_name") == asset_name:
             return asset
     return None
+
+
+def _image_orientation(image_asset: dict | None) -> str:
+    if not image_asset:
+        return "none"
+    width = float(image_asset.get("width") or 0)
+    height = float(image_asset.get("height") or 0)
+    if width <= 0 or height <= 0:
+        return "square"
+    ratio = width / height
+    if ratio >= 1.3:
+        return "landscape"
+    if ratio <= 0.82:
+        return "portrait"
+    return "square"
+
+
+def _image_is_prominent(image_asset: dict | None, minimum_coverage: float = 0.018) -> bool:
+    if not image_asset:
+        return False
+    coverage = float(image_asset.get("coverage_ratio") or 0)
+    display_area = float(image_asset.get("display_area") or 0)
+    return coverage >= minimum_coverage or display_area >= 24000
 
 
 def _add_content_image(slide, image_asset: dict | None, x: float, y: float, w: float, h: float):
@@ -686,11 +746,13 @@ def _agenda_slide(prs, data, t, slide_index, media_assets=None):
     _set_bg(slide, t["bg"])
     layout = _render_header(slide, data, t)
     metrics = _body_metrics(t)
-    step = min(max(metrics["gap"] * 0.7, 0.68), 0.9)
-    start_y = layout["body_top"] + 0.05
+    y = layout["body_top"] + 0.05
+    spacing = max(0.14, min(metrics["gap"] - 0.48, 0.34))
+    bottom_limit = 6.55 if t.get("footer_enabled", True) else 6.88
 
     for i, item in enumerate(data.get("items", [])[:8]):
-        y = start_y + i * step
+        if y >= bottom_limit:
+            break
         _rect(slide, layout["body_left"], y + 0.04, 0.32, 0.32, t["accent"])
         _tb(
             slide,
@@ -710,12 +772,13 @@ def _agenda_slide(prs, data, t, slide_index, media_assets=None):
             layout["body_left"] + 0.48,
             y,
             11.5,
-            0.55,
+            _estimate_text_height(item, 11.5, t.get("body_font_size", DEFAULT_BODY_FONT_SIZE), minimum=0.48),
             item,
             t.get("body_font_size", DEFAULT_BODY_FONT_SIZE),
             color=t["text"],
             font_name=t["font_name"],
         )
+        y += _estimate_text_height(item, 11.02, t.get("body_font_size", DEFAULT_BODY_FONT_SIZE), minimum=0.48) + spacing
 
     _add_footer(slide, slide_index, t)
     _add_logo(slide, t.get("logo_path"))
@@ -732,12 +795,28 @@ def _content_slide_classic(prs, data, t, slide_index, media_assets=None):
     body_left = layout["body_left"]
     body_top = layout["body_top"]
     body_width = layout["body_width"]
-    if _add_content_image(slide, image_asset, 8.85, max(body_top, 1.72), 3.95, 3.02):
-        body_width = 7.85
+    image_drawn = False
+    if _image_is_prominent(image_asset):
+        orientation = _image_orientation(image_asset)
+        if orientation == "portrait":
+            image_drawn = _add_content_image(slide, image_asset, 9.72, max(body_top, 1.56), 2.62, 4.04)
+            if image_drawn:
+                body_width = 8.55
+        elif orientation == "square":
+            image_drawn = _add_content_image(slide, image_asset, 9.35, max(body_top, 1.62), 3.15, 3.15)
+            if image_drawn:
+                body_width = 8.2
+        else:
+            image_drawn = _add_content_image(slide, image_asset, 8.85, max(body_top, 1.72), 3.95, 2.82)
+            if image_drawn:
+                body_width = 7.85
+
+    y = body_top
+    spacing = _bullet_spacing(density)
+    bottom_limit = 6.48 if t.get("footer_enabled", True) else 6.82
 
     for i, pt in enumerate(data.get("points", [])[:5]):
-        y = body_top + i * density["gap"]
-        _add_bullet(
+        bullet_height = _add_bullet(
             slide,
             body_left,
             y,
@@ -747,6 +826,9 @@ def _content_slide_classic(prs, data, t, slide_index, media_assets=None):
             width=body_width,
             size=density["size"],
         )
+        y += bullet_height + spacing
+        if y >= bottom_limit:
+            break
 
     _add_footer(slide, slide_index, t)
     _add_logo(slide, t.get("logo_path"))
@@ -788,14 +870,26 @@ def _content_slide_split(prs, data, t, slide_index, media_assets=None):
 
     density = _body_metrics(t)
     bullet_start_y = 1.2
-    bullet_gap = density["gap"]
-    if _add_content_image(slide, image_asset, 5.05, 0.92, 7.55, 1.85):
-        bullet_start_y = 2.95
-        bullet_gap = min(density["gap"], 0.86)
+    bullet_width = 7.7
+    if _image_is_prominent(image_asset):
+        orientation = _image_orientation(image_asset)
+        if orientation == "portrait":
+            if _add_content_image(slide, image_asset, 9.62, 1.08, 2.48, 3.62):
+                bullet_width = 4.4
+                bullet_start_y = 1.15
+        else:
+            if _add_content_image(slide, image_asset, 5.05, 0.92, 7.55, 1.85):
+                bullet_start_y = 2.95
+
+    y = bullet_start_y
+    spacing = _bullet_spacing(density)
+    bottom_limit = 6.48 if t.get("footer_enabled", True) else 6.82
 
     for i, pt in enumerate(data.get("points", [])[:5]):
-        y = bullet_start_y + i * bullet_gap
-        _add_bullet(slide, 4.9, y, pt, t, i, width=7.7, size=density["size"])
+        bullet_height = _add_bullet(slide, 4.9, y, pt, t, i, width=bullet_width, size=density["size"])
+        y += bullet_height + spacing
+        if y >= bottom_limit:
+            break
 
     _add_footer(slide, slide_index, t)
     _add_logo(slide, t.get("logo_path"))
@@ -808,26 +902,46 @@ def _content_slide_card(prs, data, t, slide_index, media_assets=None):
     layout = _render_header(slide, data, t)
     image_asset = _resolve_slide_image_asset(data, media_assets)
     pts = data.get("points", [])[:5]
-    row1_y = max(layout["body_top"] + 0.02, 1.55)
-    if _add_content_image(slide, image_asset, 0.55, row1_y, 12.23, 1.55):
-        row1_y += 1.82
-    row2_y = row1_y + 1.75
+    top_y = max(layout["body_top"] + 0.02, 1.55)
+    grid_x = 0.55
+    grid_y = top_y
+    grid_width = 12.23
+    cols = 3
+    gap = 0.22
+    card_height = 1.56
+
+    if _image_is_prominent(image_asset):
+        orientation = _image_orientation(image_asset)
+        if orientation == "portrait":
+            if _add_content_image(slide, image_asset, 9.92, top_y, 2.5, 3.42):
+                grid_width = 8.92
+                cols = 2
+                card_height = 1.62
+        elif _add_content_image(slide, image_asset, 0.55, top_y, 12.23, 1.65):
+            grid_y += 1.92
+
+    card_width = (grid_width - gap * (cols - 1)) / cols
 
     for i, pt in enumerate(pts):
-        col = i % CARD_COLS
-        row = i // CARD_COLS
-        x = CARD_START_X + col * (CARD_W + CARD_GAP)
-        y = row1_y if row == 0 else row2_y
-        _rect(slide, x, y, CARD_W, CARD_H, t["light"])
-        _rect(slide, x, y, CARD_W, 0.07, t["accent"])
+        col = i % cols
+        row = i // cols
+        x = grid_x + col * (card_width + gap)
+        y = grid_y + row * (card_height + gap)
+        _rect(slide, x, y, card_width, card_height, t["light"])
+        _rect(slide, x, y, card_width, 0.07, t["accent"])
         _tb(
             slide,
             x + 0.18,
             y + 0.22,
-            CARD_W - 0.3,
-            CARD_H - 0.3,
+            card_width - 0.34,
+            card_height - 0.38,
             pt,
-            max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 3, 13),
+            _responsive_text_size(
+                pt,
+                max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 3, 13),
+                11,
+                step=16,
+            ),
             color=t["text"],
             font_name=t["font_name"],
         )
@@ -844,14 +958,23 @@ def _content_slide_highlight(prs, data, t, slide_index, media_assets=None):
     image_asset = _resolve_slide_image_asset(data, media_assets)
     pts = data.get("points", [])[:5]
     highlight_y = max(layout["body_top"] + 0.02, 1.55)
+    lead_right = 12.8
 
     if pts:
         highlight_w = 12.33
         text_x = 0.75
         text_w = 11.8
-        if _add_content_image(slide, image_asset, 8.1, highlight_y, 4.73, 2.0):
-            highlight_w = 7.35
-            text_w = 6.5
+        if _image_is_prominent(image_asset):
+            orientation = _image_orientation(image_asset)
+            if orientation == "portrait":
+                if _add_content_image(slide, image_asset, 9.58, highlight_y, 2.7, 2.18):
+                    highlight_w = 8.7
+                    text_w = 7.75
+                    lead_right = 8.95
+            elif _add_content_image(slide, image_asset, 8.1, highlight_y, 4.73, 2.0):
+                highlight_w = 7.35
+                text_w = 6.5
+                lead_right = 7.62
         _rect(slide, 0.5, highlight_y, highlight_w, 2.0, t["accent"])
         _tb(
             slide,
@@ -878,7 +1001,12 @@ def _content_slide_highlight(prs, data, t, slide_index, media_assets=None):
             col_w - 0.3,
             1.2,
             pt,
-            max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 2, 13),
+            _responsive_text_size(
+                pt,
+                max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 2, 13),
+                11,
+                step=18,
+            ),
             color=t["text"],
             font_name=t["font_name"],
         )
@@ -896,20 +1024,29 @@ def _content_slide_process(prs, data, t, slide_index, media_assets=None):
     steps = [str(step).strip() for step in steps if str(step).strip()][:4]
     image_asset = _resolve_slide_image_asset(data, media_assets)
     top_y = max(layout["body_top"], 1.55)
-    if image_asset:
-        _add_content_image(slide, image_asset, 9.55, top_y - 0.05, 3.0, 1.7)
+    start_x = 0.55
+    total_width = 12.1
+    extra_right = 11.95
+    if _image_is_prominent(image_asset):
+        orientation = _image_orientation(image_asset)
+        if orientation == "portrait":
+            if _add_content_image(slide, image_asset, 10.15, top_y - 0.02, 2.1, 2.24):
+                total_width = 9.08
+                extra_right = 9.45
+        elif _add_content_image(slide, image_asset, 9.75, top_y - 0.02, 2.55, 1.58):
+            total_width = 9.05
+            extra_right = 9.4
 
     usable_steps = steps or [point for point in data.get("points", [])[:3] if str(point).strip()]
     step_count = max(len(usable_steps), 1)
     gap = 0.18
-    total_width = 12.1
     step_width = min((total_width - gap * (step_count - 1)) / step_count, 2.8)
-    start_x = 0.55
     box_y = top_y + 0.35
+    box_h = 1.5
 
     for idx, step in enumerate(usable_steps):
         x = start_x + idx * (step_width + gap)
-        _rect(slide, x, box_y, step_width, 1.35, t["light"])
+        _rect(slide, x, box_y, step_width, box_h, t["light"])
         _rect(slide, x, box_y, step_width, 0.08, t["accent"])
         _tb(
             slide,
@@ -928,20 +1065,35 @@ def _content_slide_process(prs, data, t, slide_index, media_assets=None):
             x + 0.18,
             box_y + 0.5,
             step_width - 0.3,
-            0.75,
+            _estimate_text_height(
+                step,
+                step_width - 0.3,
+                _responsive_text_size(
+                    step,
+                    max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 1, 14),
+                    11,
+                    step=14,
+                ),
+                minimum=0.64,
+            ),
             step,
-            max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 1, 14),
+            _responsive_text_size(
+                step,
+                max(t.get("body_font_size", DEFAULT_BODY_FONT_SIZE) - 1, 14),
+                11,
+                step=14,
+            ),
             bold=True,
             color=t["text"],
             font_name=t["font_name"],
         )
         if idx < step_count - 1:
             arrow_x = x + step_width + 0.03
-            _rect(slide, arrow_x, box_y + 0.58, gap - 0.06, 0.06, t["accent"])
+            _rect(slide, arrow_x, box_y + 0.66, gap - 0.06, 0.06, t["accent"])
             _tb(
                 slide,
                 arrow_x + 0.02,
-                box_y + 0.42,
+                box_y + 0.49,
                 0.22,
                 0.32,
                 "→",
@@ -953,9 +1105,11 @@ def _content_slide_process(prs, data, t, slide_index, media_assets=None):
 
     metrics = _body_metrics(t)
     extra_points = data.get("points", [])[len(usable_steps):]
+    y = box_y + box_h + 0.26
+    spacing = _bullet_spacing(metrics)
     for idx, point in enumerate(extra_points[:3]):
-        y = box_y + 1.8 + idx * min(max(metrics["gap"] * 0.7, 0.72), 0.96)
-        _add_bullet(slide, 0.7, y, point, t, idx, width=11.8, size=max(metrics["size"] - 1, 14))
+        bullet_height = _add_bullet(slide, 0.7, y, point, t, idx, width=extra_right - 0.7, size=max(metrics["size"] - 1, 14))
+        y += bullet_height + spacing
 
     _add_footer(slide, slide_index, t)
     _add_logo(slide, t.get("logo_path"))
@@ -973,7 +1127,7 @@ def _content_slide_compare(prs, data, t, slide_index, media_assets=None):
     left_points = data.get("compare_left_points") or data.get("points", [])[:2]
     right_points = data.get("compare_right_points") or data.get("points", [])[2:4]
 
-    if image_asset:
+    if _image_is_prominent(image_asset, minimum_coverage=0.03):
         _add_content_image(slide, image_asset, 10.05, top_y - 0.05, 2.5, 1.55)
 
     _rect(slide, 0.6, top_y, 5.7, 0.9, t["light"])
@@ -1005,13 +1159,16 @@ def _content_slide_compare(prs, data, t, slide_index, media_assets=None):
     _rect(slide, 6.58, top_y + 0.08, 0.05, 4.5, t["accent"])
 
     metrics = _body_metrics(t)
+    left_y = top_y + 1.15
+    right_y = top_y + 1.15
+    spacing = _bullet_spacing(metrics)
     for idx, point in enumerate(left_points[:3]):
-        y = top_y + 1.15 + idx * min(max(metrics["gap"] * 0.76, 0.76), 1.0)
-        _add_bullet(slide, 0.82, y, point, t, idx, width=5.0, size=max(metrics["size"] - 1, 14))
+        bullet_height = _add_bullet(slide, 0.82, left_y, point, t, idx, width=5.0, size=max(metrics["size"] - 1, 14))
+        left_y += bullet_height + spacing
 
     for idx, point in enumerate(right_points[:3]):
-        y = top_y + 1.15 + idx * min(max(metrics["gap"] * 0.76, 0.76), 1.0)
-        _add_bullet(slide, 7.18, y, point, t, idx, width=5.0, size=max(metrics["size"] - 1, 14))
+        bullet_height = _add_bullet(slide, 7.18, right_y, point, t, idx, width=5.0, size=max(metrics["size"] - 1, 14))
+        right_y += bullet_height + spacing
 
     _add_footer(slide, slide_index, t)
     _add_logo(slide, t.get("logo_path"))
@@ -1036,8 +1193,12 @@ def _summary_slide(prs, data, t, slide_index, media_assets=None):
         font_name=t["font_name"],
     )
 
+    y = 1.6
+    spacing = max(0.16, min(metrics["gap"] - 0.42, 0.34))
+    bottom_limit = 6.45 if t.get("footer_enabled", True) else 6.8
     for i, pt in enumerate(data.get("points", [])[:6]):
-        y = 1.6 + i * min(max(metrics["gap"] * 0.82, 0.84), 1.12)
+        if y >= bottom_limit:
+            break
         _rect(slide, 0.5, y + 0.06, 0.28, 0.28, t["confirm"])
         _tb(
             slide,
@@ -1057,12 +1218,13 @@ def _summary_slide(prs, data, t, slide_index, media_assets=None):
             0.94,
             y,
             11.8,
-            0.72,
+            _estimate_text_height(pt, 11.8, t.get("body_font_size", DEFAULT_BODY_FONT_SIZE), minimum=0.52),
             pt,
             t.get("body_font_size", DEFAULT_BODY_FONT_SIZE),
             color=t["text"],
             font_name=t["font_name"],
         )
+        y += _estimate_text_height(pt, 11.8, t.get("body_font_size", DEFAULT_BODY_FONT_SIZE), minimum=0.52) + spacing
 
     _add_footer(slide, slide_index, t)
     _add_logo(slide, t.get("logo_path"))

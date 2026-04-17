@@ -326,7 +326,7 @@ def _prepare_slide_package(slides_data: list[dict], assets: list[dict] | None, s
     }
 
 
-def _candidate_asset_pages(slides_data: list[dict], selected_pages: list[int] | None, radius: int = 1, max_pages: int = 48) -> list[int]:
+def _candidate_asset_pages(slides_data: list[dict], selected_pages: list[int] | None, radius: int = 1, max_pages: int = 72) -> list[int]:
     selected = sorted({int(page) for page in (selected_pages or []) if int(page) >= 1})
     if not selected:
         return []
@@ -451,6 +451,8 @@ def _run_analysis_pipeline(
                 asset_pages,
                 _asset_bundle_dir(uid),
                 bundle_uid=uid,
+                max_total=max(36, min(len(reviewed["slides"]) * 3, 96)),
+                max_per_page=3,
             )
 
         notify("attach_pdf_images", "슬라이드에 이미지를 연결하고 있습니다...")

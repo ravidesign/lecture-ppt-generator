@@ -335,6 +335,7 @@ def extract_pdf_images(
         for page_number in pages:
             page = doc.load_page(page_number - 1)
             page_candidates = []
+            page_area = max(float(page.rect.width * page.rect.height), 1.0)
 
             for image_info in page.get_images(full=True):
                 xref = image_info[0]
@@ -366,24 +367,59 @@ def extract_pdf_images(
 
                 rects = page.get_image_rects(xref)
                 display_area = 0
+                main_rect = None
                 if rects:
-                    display_area = max(int(rect.width * rect.height) for rect in rects)
+                    main_rect = max(rects, key=lambda rect: rect.width * rect.height)
+                    display_area = int(main_rect.width * main_rect.height)
                 if display_area <= 0:
                     display_area = width * height
 
+                coverage_ratio = display_area / page_area
+                if coverage_ratio < 0.012 and display_area < 18000:
+                    continue
+
+                clip_bytes = raw_bytes
+                clip_width = width
+                clip_height = height
+                if main_rect is not None:
+                    try:
+                        pad_x = max(main_rect.width * 0.12, 18)
+                        pad_y = max(main_rect.height * 0.12, 18)
+                        clip_rect = fitz.Rect(
+                            max(page.rect.x0, main_rect.x0 - pad_x),
+                            max(page.rect.y0, main_rect.y0 - pad_y),
+                            min(page.rect.x1, main_rect.x1 + pad_x),
+                            min(page.rect.y1, main_rect.y1 + pad_y),
+                        )
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2.2, 2.2), clip=clip_rect, alpha=False)
+                        rendered_bytes = pix.tobytes("png")
+                        with Image.open(BytesIO(rendered_bytes)) as rendered_img:
+                            clip_width, clip_height = rendered_img.size
+                        clip_bytes = rendered_bytes
+                    except Exception:
+                        clip_bytes = raw_bytes
+                        clip_width = width
+                        clip_height = height
+
+                asset_hash = hashlib.sha1(clip_bytes).hexdigest()
+                if asset_hash in seen_hashes:
+                    continue
+
                 page_candidates.append(
                     {
-                        "hash": raw_hash,
+                        "hash": asset_hash,
                         "page": page_number,
-                        "width": width,
-                        "height": height,
+                        "width": clip_width,
+                        "height": clip_height,
                         "display_area": display_area,
-                        "bytes": raw_bytes,
+                        "coverage_ratio": round(coverage_ratio, 6),
+                        "bytes": clip_bytes,
                     }
                 )
 
             page_candidates.sort(
                 key=lambda item: (
+                    -item["coverage_ratio"],
                     -item["display_area"],
                     -(item["width"] * item["height"]),
                     item["page"],
@@ -411,6 +447,7 @@ def extract_pdf_images(
                         "width": candidate["width"],
                         "height": candidate["height"],
                         "display_area": candidate["display_area"],
+                        "coverage_ratio": candidate["coverage_ratio"],
                     }
                 )
 
