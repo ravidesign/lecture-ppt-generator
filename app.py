@@ -115,6 +115,9 @@ def _safe_error_text(exc: Exception) -> str:
         text = str(exc).strip()
     except Exception:
         text = exc.__class__.__name__
+    lowered = text.lower()
+    if "invalid x-api-key" in lowered or "authentication_error" in lowered:
+        return "서버에 설정된 Anthropic API 키가 유효하지 않습니다. Render 환경변수 `ANTHROPIC_API_KEY`를 다시 입력해 주세요."
     return text or exc.__class__.__name__
 
 
