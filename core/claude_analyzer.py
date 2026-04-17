@@ -58,6 +58,10 @@ Rules:
 """
 
 NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
+ANTHROPIC_CONNECT_TIMEOUT = 20.0
+ANTHROPIC_READ_TIMEOUT = 660.0
+ANTHROPIC_WRITE_TIMEOUT = 60.0
+ANTHROPIC_POOL_TIMEOUT = 60.0
 
 
 def _load_json(raw_text: str):
@@ -121,11 +125,19 @@ def _build_client() -> anthropic.Anthropic:
     api_key = _sanitize_api_key(raw_key)
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is missing or invalid after sanitization.")
-    http_client = httpx.Client(trust_env=False, timeout=120.0)
+    http_client = httpx.Client(
+        trust_env=False,
+        timeout=httpx.Timeout(
+            connect=ANTHROPIC_CONNECT_TIMEOUT,
+            read=ANTHROPIC_READ_TIMEOUT,
+            write=ANTHROPIC_WRITE_TIMEOUT,
+            pool=ANTHROPIC_POOL_TIMEOUT,
+        ),
+    )
     return anthropic.Anthropic(
         api_key=api_key,
         http_client=http_client,
-        max_retries=1,
+        max_retries=2,
     )
 
 
@@ -165,6 +177,16 @@ def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt:
     return "\n".join(lines)
 
 
+def _message_text(message) -> str:
+    blocks = getattr(message, "content", []) or []
+    texts = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if text:
+            texts.append(text)
+    return "\n".join(texts).strip()
+
+
 def _request_pdf_json(client, pdf_bytes: bytes, system_prompt: str, user_text: str, max_tokens: int):
     safe_system_prompt = _ensure_ascii_text(
         system_prompt,
@@ -174,7 +196,7 @@ def _request_pdf_json(client, pdf_bytes: bytes, system_prompt: str, user_text: s
         user_text,
         fallback="Analyze the supplied PDF and return the requested lecture-slide JSON array.",
     )
-    response = client.messages.create(
+    with client.messages.stream(
         model="claude-opus-4-5",
         max_tokens=max_tokens,
         system=safe_system_prompt,
@@ -197,8 +219,15 @@ def _request_pdf_json(client, pdf_bytes: bytes, system_prompt: str, user_text: s
                 ],
             }
         ],
-    )
-    return _load_json(response.content[0].text.strip())
+        timeout=httpx.Timeout(
+            connect=ANTHROPIC_CONNECT_TIMEOUT,
+            read=ANTHROPIC_READ_TIMEOUT,
+            write=ANTHROPIC_WRITE_TIMEOUT,
+            pool=ANTHROPIC_POOL_TIMEOUT,
+        ),
+    ) as stream:
+        final_message = stream.get_final_message()
+    return _load_json(_message_text(final_message))
 
 
 def _request_text_json(client, system_prompt: str, user_text: str, max_tokens: int):
@@ -210,13 +239,20 @@ def _request_text_json(client, system_prompt: str, user_text: str, max_tokens: i
         user_text,
         fallback="Combine the supplied chunk summaries into one lecture-slide JSON array.",
     )
-    response = client.messages.create(
+    with client.messages.stream(
         model="claude-opus-4-5",
         max_tokens=max_tokens,
         system=safe_system_prompt,
         messages=[{"role": "user", "content": [{"type": "text", "text": safe_user_text}]}],
-    )
-    return _load_json(response.content[0].text.strip())
+        timeout=httpx.Timeout(
+            connect=ANTHROPIC_CONNECT_TIMEOUT,
+            read=ANTHROPIC_READ_TIMEOUT,
+            write=ANTHROPIC_WRITE_TIMEOUT,
+            pool=ANTHROPIC_POOL_TIMEOUT,
+        ),
+    ) as stream:
+        final_message = stream.get_final_message()
+    return _load_json(_message_text(final_message))
 
 
 def _summarize_large_pdf(client, pdf_path: str, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> list[dict]:
