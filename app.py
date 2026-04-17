@@ -7,6 +7,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import traceback
 import uuid
 from datetime import datetime
@@ -41,11 +43,13 @@ app.json.ensure_ascii = True
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "outputs")
+ANALYZE_JOB_DIR = os.path.join(OUTPUT_DIR, "analyze_jobs")
 UID_RE = re.compile(r"^[a-f0-9]{8}$")
 INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
 SAFE_ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(ANALYZE_JOB_DIR, exist_ok=True)
 ERROR_LOG_FILE = os.path.join(OUTPUT_DIR, "server_errors.log")
 OCRMYPDF_BIN = shutil.which("ocrmypdf")
 TESSERACT_BIN = shutil.which("tesseract")
@@ -226,6 +230,38 @@ def _slides_json_path(uid: str) -> str:
     return os.path.join(OUTPUT_DIR, f"{uid}_slides.json")
 
 
+def _analyze_job_path(job_id: str) -> str:
+    return os.path.join(ANALYZE_JOB_DIR, f"{job_id}.json")
+
+
+def _write_json_atomic(path: str, payload: dict):
+    temp_path = f"{path}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False)
+    os.replace(temp_path, path)
+
+
+def _load_analyze_job(job_id: str):
+    path = _analyze_job_path(job_id)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _save_analyze_job(job_id: str, payload: dict):
+    _write_json_atomic(_analyze_job_path(job_id), payload)
+
+
+def _update_analyze_job(job_id: str, **changes):
+    payload = _load_analyze_job(job_id) or {"job_id": job_id}
+    payload.update(changes)
+    payload["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    if "created_at" not in payload:
+        payload["created_at"] = payload["updated_at"]
+    _save_analyze_job(job_id, payload)
+
+
 def _load_saved_payload(uid: str):
     path = _slides_json_path(uid)
     if not os.path.exists(path):
@@ -342,6 +378,152 @@ def _enhance_pdf_for_scans(pdf_path: str, job_uid: str) -> tuple[str, bool, str 
         return pdf_path, False, str(exc)
 
 
+def _run_analysis_pipeline(
+    uid: str,
+    pdf_path: str,
+    slide_count: int | None,
+    auto_slide_count: bool,
+    enhance_scans: bool,
+    page_range: str | None,
+    extra_prompt: str | None,
+    progress=None,
+):
+    analysis_pdf_path = pdf_path
+    ocr_used = False
+    ocr_error = None
+
+    def notify(stage: str, message: str):
+        if callable(progress):
+            progress(stage, message)
+
+    try:
+        notify("start", "PDF를 확인하고 분석을 준비하고 있습니다...")
+        if enhance_scans:
+            notify("enhance_scans", "스캔형 PDF를 보정하고 있습니다...")
+            analysis_pdf_path, ocr_used, ocr_error = _enhance_pdf_for_scans(pdf_path, uid)
+
+        notify("resolve_page_selection", "사용할 페이지 범위를 정리하고 있습니다...")
+        page_plan = resolve_page_selection(analysis_pdf_path, page_range or None, max_pages_per_chunk=100)
+
+        try:
+            notify("analyze_pdf_primary", "Claude AI가 슬라이드 초안을 만들고 있습니다...")
+            slides_data = analyze_pdf(
+                analysis_pdf_path,
+                slide_count,
+                page_range=page_range or None,
+                extra_prompt=extra_prompt or None,
+            )
+        except UnicodeEncodeError:
+            notify("analyze_pdf_ascii_safe_retry", "인코딩 안전 모드로 다시 분석하고 있습니다...")
+            slides_data = analyze_pdf(
+                analysis_pdf_path,
+                slide_count,
+                page_range=page_range or None,
+                extra_prompt=extra_prompt or None,
+                ascii_safe_mode=True,
+            )
+
+        notify("review_slides", "슬라이드 구조를 점검하고 있습니다...")
+        reviewed = review_slides(slides_data, selected_pages=page_plan["selected_pages"])
+
+        notify("collect_asset_pages", "이미지 후보 페이지를 고르고 있습니다...")
+        asset_pages = _candidate_asset_pages(reviewed["slides"], page_plan["selected_pages"])
+
+        notify("extract_pdf_images", "필요한 PDF 이미지만 추출하고 있습니다...")
+        assets = []
+        if asset_pages:
+            assets = extract_pdf_images(
+                analysis_pdf_path,
+                asset_pages,
+                _asset_bundle_dir(uid),
+                bundle_uid=uid,
+            )
+
+        notify("attach_pdf_images", "슬라이드에 이미지를 연결하고 있습니다...")
+        prepared_slides = attach_pdf_images_to_slides(reviewed["slides"], assets)
+        prepared = {
+            "slides": prepared_slides,
+            "outline": build_outline(prepared_slides),
+            "quality": build_quality_summary(prepared_slides),
+        }
+
+        notify("build_response", "분석 결과를 정리하고 있습니다...")
+        return {
+            "ok": True,
+            "slides": prepared["slides"],
+            "outline": prepared["outline"],
+            "quality": prepared["quality"],
+            "assets": assets,
+            "asset_count": len(assets),
+            "uid": uid,
+            "auto_slide_count": auto_slide_count,
+            "page_plan": {
+                "mode": page_plan["mode"],
+                "selected_pages": page_plan["selected_pages"],
+                "selection_note": page_plan.get("selection_note", ""),
+            },
+            "ocr_available": OCR_AVAILABLE,
+            "ocr_used": ocr_used,
+            "ocr_error": ocr_error,
+            "enhance_scans_requested": enhance_scans,
+        }
+    finally:
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        if analysis_pdf_path != pdf_path and os.path.exists(analysis_pdf_path):
+            os.remove(analysis_pdf_path)
+
+
+def _run_analyze_job(
+    job_id: str,
+    pdf_path: str,
+    slide_count: int | None,
+    auto_slide_count: bool,
+    enhance_scans: bool,
+    page_range: str | None,
+    extra_prompt: str | None,
+):
+    current_stage = "queued"
+
+    def progress(stage: str, message: str):
+        nonlocal current_stage
+        current_stage = stage
+        _update_analyze_job(job_id, status="running", stage=stage, message=message)
+
+    try:
+        _update_analyze_job(job_id, status="running", stage="queued", message="분석 작업을 시작하고 있습니다...")
+        result = _run_analysis_pipeline(
+            job_id,
+            pdf_path,
+            slide_count,
+            auto_slide_count,
+            enhance_scans,
+            page_range,
+            extra_prompt,
+            progress=progress,
+        )
+        _update_analyze_job(
+            job_id,
+            status="completed",
+            stage="completed",
+            message="분석이 완료되었습니다.",
+            result=result,
+            finished_at=datetime.utcnow().isoformat() + "Z",
+        )
+    except Exception as exc:
+        _cleanup_asset_bundle(job_id)
+        error_id = _record_exception(f"api_analyze_job:{current_stage}", exc)
+        _update_analyze_job(
+            job_id,
+            status="failed",
+            stage=current_stage,
+            message="분석 작업이 실패했습니다.",
+            error=_safe_error_text(exc),
+            error_id=error_id,
+            finished_at=datetime.utcnow().isoformat() + "Z",
+        )
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -375,89 +557,91 @@ def api_analyze():
     uid = uuid.uuid4().hex[:8]
     pdf_path = os.path.join(UPLOAD_DIR, f"{uid}.pdf")
     file.save(pdf_path)
-    analysis_pdf_path = pdf_path
-    ocr_used = False
-    ocr_error = None
-    analyze_stage = "start"
 
     try:
-        if enhance_scans:
-            analyze_stage = "enhance_scans"
-            analysis_pdf_path, ocr_used, ocr_error = _enhance_pdf_for_scans(pdf_path, uid)
-
-        analyze_stage = "resolve_page_selection"
-        page_plan = resolve_page_selection(analysis_pdf_path, page_range or None, max_pages_per_chunk=100)
-        try:
-            analyze_stage = "analyze_pdf_primary"
-            slides_data = analyze_pdf(
-                analysis_pdf_path,
-                slide_count,
-                page_range=page_range or None,
-                extra_prompt=extra_prompt or None,
-            )
-        except UnicodeEncodeError:
-            analyze_stage = "analyze_pdf_ascii_safe_retry"
-            slides_data = analyze_pdf(
-                analysis_pdf_path,
-                slide_count,
-                page_range=page_range or None,
-                extra_prompt=extra_prompt or None,
-                ascii_safe_mode=True,
-            )
-        analyze_stage = "review_slides"
-        reviewed = review_slides(slides_data, selected_pages=page_plan["selected_pages"])
-        analyze_stage = "collect_asset_pages"
-        asset_pages = _candidate_asset_pages(reviewed["slides"], page_plan["selected_pages"])
-        analyze_stage = "extract_pdf_images"
-        assets = []
-        if asset_pages:
-            assets = extract_pdf_images(
-                analysis_pdf_path,
-                asset_pages,
-                _asset_bundle_dir(uid),
-                bundle_uid=uid,
-            )
-        analyze_stage = "attach_pdf_images"
-        prepared_slides = attach_pdf_images_to_slides(reviewed["slides"], assets)
-        prepared = {
-            "slides": prepared_slides,
-            "outline": build_outline(prepared_slides),
-            "quality": build_quality_summary(prepared_slides),
-        }
-        analyze_stage = "build_response"
-        return _json_response(
-            {
-                "ok": True,
-                "slides": prepared["slides"],
-                "outline": prepared["outline"],
-                "quality": prepared["quality"],
-                "assets": assets,
-                "asset_count": len(assets),
-                "uid": uid,
-                "auto_slide_count": auto_slide_count,
-                "page_plan": {
-                    "mode": page_plan["mode"],
-                    "selected_pages": page_plan["selected_pages"],
-                    "selection_note": page_plan.get("selection_note", ""),
-                },
-                "ocr_available": OCR_AVAILABLE,
-                "ocr_used": ocr_used,
-                "ocr_error": ocr_error,
-                "enhance_scans_requested": enhance_scans,
-            }
+        result = _run_analysis_pipeline(
+            uid,
+            pdf_path,
+            slide_count,
+            auto_slide_count,
+            enhance_scans,
+            page_range or None,
+            extra_prompt or None,
         )
+        return _json_response(result)
     except Exception as exc:
         _cleanup_asset_bundle(uid)
-        error_id = _record_exception(f"api_analyze:{analyze_stage}", exc)
+        error_id = _record_exception("api_analyze", exc)
         return _json_response(
-            {"error": _safe_error_text(exc), "error_id": error_id, "error_stage": analyze_stage},
+            {"error": _safe_error_text(exc), "error_id": error_id},
             status=500,
         )
-    finally:
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
-        if analysis_pdf_path != pdf_path and os.path.exists(analysis_pdf_path):
-            os.remove(analysis_pdf_path)
+
+
+@app.route("/api/analyze/start", methods=["POST"])
+def api_analyze_start():
+    if "file" not in request.files:
+        return _json_response({"error": "파일이 없습니다"}, status=400)
+
+    file = request.files["file"]
+    if not file.filename.lower().endswith(".pdf"):
+        return _json_response({"error": "PDF 파일만 지원합니다"}, status=400)
+
+    auto_slide_count = _is_truthy(request.form.get("auto_slide_count"))
+    enhance_scans = _is_truthy(request.form.get("enhance_scans"))
+    try:
+        slide_count = int(request.form.get("slide_count", 10))
+    except (TypeError, ValueError):
+        slide_count = 10
+    slide_count = None if auto_slide_count else max(5, min(50, slide_count))
+
+    page_range = request.form.get("page_range", "").strip()
+    extra_prompt = request.form.get("extra_prompt", "").strip()
+
+    job_id = uuid.uuid4().hex[:8]
+    pdf_path = os.path.join(UPLOAD_DIR, f"{job_id}.pdf")
+    file.save(pdf_path)
+
+    _save_analyze_job(
+        job_id,
+        {
+            "job_id": job_id,
+            "status": "queued",
+            "stage": "queued",
+            "message": "분석 작업을 대기열에 올렸습니다...",
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        },
+    )
+
+    worker = threading.Thread(
+        target=_run_analyze_job,
+        args=(
+            job_id,
+            pdf_path,
+            slide_count,
+            auto_slide_count,
+            enhance_scans,
+            page_range or None,
+            extra_prompt or None,
+        ),
+        daemon=True,
+    )
+    worker.start()
+
+    return _json_response({"ok": True, "job_id": job_id, "status": "queued"})
+
+
+@app.route("/api/analyze/status/<job_id>", methods=["GET"])
+def api_analyze_status(job_id):
+    if not UID_RE.match(job_id):
+        return _json_response({"error": "invalid job id"}, status=400)
+
+    payload = _load_analyze_job(job_id)
+    if not payload:
+        return _json_response({"error": "분석 작업을 찾을 수 없습니다."}, status=404)
+
+    return _json_response(payload)
 
 
 @app.route("/api/presets")

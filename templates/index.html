@@ -713,6 +713,30 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function pollAnalyzeJob(jobId) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < 1000 * 60 * 12) {
+    const response = await fetch(`/api/analyze/status/${encodeURIComponent(jobId)}`);
+    const data = await readApiPayload(response, '분석 상태 확인');
+    if (!response.ok || data.error) throw new Error(apiErrorMessage(data, '분석 상태 확인 실패'));
+
+    if (data.status === 'completed' && data.result) {
+      return data.result;
+    }
+
+    if (data.status === 'failed') {
+      throw new Error(apiErrorMessage(data, '분석 실패'));
+    }
+
+    const stageLabel = data.stage ? ` [${data.stage}]` : '';
+    setSt('st1', 'load', `${data.message || '분석 작업을 진행 중입니다...'}${stageLabel}`);
+    await wait(1800);
+  }
+
+  throw new Error('분석 시간이 너무 오래 걸리고 있습니다. 잠시 후 다시 시도해 주세요.');
+}
+
 async function readApiPayload(response, fallback) {
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
   const rawText = await response.text();
@@ -1633,29 +1657,13 @@ $('ab').onclick = async () => {
   formData.append('extra_prompt', $('ep').value.trim());
 
   try {
-    let data = null;
-    let response = null;
-    let finalError = null;
+    const startResponse = await fetch('/api/analyze/start', { method: 'POST', body: formData });
+    const startData = await readApiPayload(startResponse, '분석 시작');
+    if (!startResponse.ok || startData.error) throw new Error(apiErrorMessage(startData, '분석 시작 실패'));
+    if (!startData.job_id) throw new Error('분석 작업 ID를 받지 못했습니다.');
 
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      if (attempt > 1) {
-        setSt('st1', 'load', `분석 서버 응답이 불안정해 재시도 중입니다... (${attempt}/2)`);
-        await wait(1500);
-      }
-
-      response = await fetch('/api/analyze', { method: 'POST', body: formData });
-      data = await readApiPayload(response, '분석');
-
-      if (response.ok && !data.error) {
-        finalError = null;
-        break;
-      }
-
-      finalError = new Error(apiErrorMessage(data, '분석 실패'));
-      if (!shouldRetryApiFailure(response, data) || attempt === 2) break;
-    }
-
-    if (finalError) throw finalError;
+    setSt('st1', 'load', '분석 작업이 시작되었습니다. 상태를 확인하고 있습니다...');
+    const data = await pollAnalyzeJob(startData.job_id);
 
     S.slides = data.slides;
     S.outline = data.outline || [];
