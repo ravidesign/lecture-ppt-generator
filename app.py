@@ -162,6 +162,14 @@ def _refresh_runtime_encoding():
     _ensure_utf8_runtime()
 
 
+@app.after_request
+def _disable_response_caching(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 def _resolve_preset_id(preset_id: str) -> str:
     return LEGACY_THEME_PRESET_MAP.get(preset_id, preset_id or "corporate")
 
