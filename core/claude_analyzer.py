@@ -90,6 +90,17 @@ def _safe_user_instruction(value: str | None, fallback: str | None = None) -> st
     return fallback
 
 
+def _ensure_ascii_text(value: str | None, fallback: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    if not _contains_non_ascii(text):
+        return text
+
+    compact = text.encode("ascii", "ignore").decode("ascii").strip()
+    return compact or fallback
+
+
 def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt: str | None, ascii_safe_mode: bool = False) -> str:
     page_summary = format_page_ranges(page_plan["selected_pages"])
     if slide_count is None:
@@ -127,10 +138,18 @@ def _build_slide_request(slide_count: int | None, page_plan: dict, extra_prompt:
 
 
 def _request_pdf_json(client, pdf_bytes: bytes, system_prompt: str, user_text: str, max_tokens: int):
+    safe_system_prompt = _ensure_ascii_text(
+        system_prompt,
+        fallback="You are an expert lecture-slide planner. Return only valid JSON.",
+    )
+    safe_user_text = _ensure_ascii_text(
+        user_text,
+        fallback="Analyze the supplied PDF and return the requested lecture-slide JSON array.",
+    )
     response = client.messages.create(
         model="claude-opus-4-5",
         max_tokens=max_tokens,
-        system=system_prompt,
+        system=safe_system_prompt,
         messages=[
             {
                 "role": "user",
@@ -145,7 +164,7 @@ def _request_pdf_json(client, pdf_bytes: bytes, system_prompt: str, user_text: s
                     },
                     {
                         "type": "text",
-                        "text": user_text,
+                        "text": safe_user_text,
                     },
                 ],
             }
@@ -155,11 +174,19 @@ def _request_pdf_json(client, pdf_bytes: bytes, system_prompt: str, user_text: s
 
 
 def _request_text_json(client, system_prompt: str, user_text: str, max_tokens: int):
+    safe_system_prompt = _ensure_ascii_text(
+        system_prompt,
+        fallback="You are an expert lecture-slide planner. Return only valid JSON.",
+    )
+    safe_user_text = _ensure_ascii_text(
+        user_text,
+        fallback="Combine the supplied chunk summaries into one lecture-slide JSON array.",
+    )
     response = client.messages.create(
         model="claude-opus-4-5",
         max_tokens=max_tokens,
-        system=system_prompt,
-        messages=[{"role": "user", "content": [{"type": "text", "text": user_text}]}],
+        system=safe_system_prompt,
+        messages=[{"role": "user", "content": [{"type": "text", "text": safe_user_text}]}],
     )
     return _load_json(response.content[0].text.strip())
 

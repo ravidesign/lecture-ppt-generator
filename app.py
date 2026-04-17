@@ -118,6 +118,15 @@ def _safe_error_text(exc: Exception) -> str:
     return text or exc.__class__.__name__
 
 
+def _json_response(payload: dict | list, status: int = 200):
+    body = json.dumps(payload, ensure_ascii=True)
+    return app.response_class(
+        response=body,
+        status=status,
+        mimetype="application/json",
+    )
+
+
 def _record_exception(stage: str, exc: Exception) -> str:
     _ensure_utf8_runtime()
     error_id = uuid.uuid4().hex[:8]
@@ -319,12 +328,16 @@ def api_analyze():
     analysis_pdf_path = pdf_path
     ocr_used = False
     ocr_error = None
+    analyze_stage = "start"
 
     try:
         if enhance_scans:
+            analyze_stage = "enhance_scans"
             analysis_pdf_path, ocr_used, ocr_error = _enhance_pdf_for_scans(pdf_path, uid)
 
+        analyze_stage = "resolve_page_selection"
         page_plan = resolve_page_selection(analysis_pdf_path, page_range or None, max_pages_per_chunk=100)
+        analyze_stage = "extract_pdf_images"
         assets = extract_pdf_images(
             analysis_pdf_path,
             page_plan["selected_pages"],
@@ -332,6 +345,7 @@ def api_analyze():
             bundle_uid=uid,
         )
         try:
+            analyze_stage = "analyze_pdf_primary"
             slides_data = analyze_pdf(
                 analysis_pdf_path,
                 slide_count,
@@ -339,6 +353,7 @@ def api_analyze():
                 extra_prompt=extra_prompt or None,
             )
         except UnicodeEncodeError:
+            analyze_stage = "analyze_pdf_ascii_safe_retry"
             slides_data = analyze_pdf(
                 analysis_pdf_path,
                 slide_count,
@@ -346,8 +361,10 @@ def api_analyze():
                 extra_prompt=extra_prompt or None,
                 ascii_safe_mode=True,
             )
+        analyze_stage = "prepare_slide_package"
         prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan["selected_pages"])
-        return jsonify(
+        analyze_stage = "build_response"
+        return _json_response(
             {
                 "ok": True,
                 "slides": prepared["slides"],
@@ -370,8 +387,11 @@ def api_analyze():
         )
     except Exception as exc:
         _cleanup_asset_bundle(uid)
-        error_id = _record_exception("api_analyze", exc)
-        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
+        error_id = _record_exception(f"api_analyze:{analyze_stage}", exc)
+        return _json_response(
+            {"error": _safe_error_text(exc), "error_id": error_id, "error_stage": analyze_stage},
+            status=500,
+        )
     finally:
         if os.path.exists(pdf_path):
             os.remove(pdf_path)

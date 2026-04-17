@@ -696,7 +696,10 @@ function setSt(id, type, msg) {
 
 function apiErrorMessage(data, fallback) {
   const message = data?.error || fallback;
-  return data?.error_id ? `${message} (error id: ${data.error_id})` : message;
+  const detail = [];
+  if (data?.error_stage) detail.push(`stage: ${data.error_stage}`);
+  if (data?.error_id) detail.push(`error id: ${data.error_id}`);
+  return detail.length ? `${message} (${detail.join(', ')})` : message;
 }
 
 function hideSt(id) {
