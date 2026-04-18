@@ -11,6 +11,7 @@ import threading
 import time
 import traceback
 import uuid
+from copy import deepcopy
 from datetime import datetime
 
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -25,6 +26,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 load_dotenv()
 
+import config
 from core.claude_analyzer import analyze_pdf
 from core.history import add_record, get_history
 from core.pdf_parser import (
@@ -42,6 +44,9 @@ from core.ppt_generator import (
 from core.slide_quality import build_outline, build_quality_summary, review_slides
 from core.slide_enricher import attach_pdf_images_to_slides
 from core.slide_variants import generate_slide_variants
+from flows import build_initial_agent_trace, run_full_pipeline
+from tools.docx_tool import save_exam_artifacts
+from tools.slide_tool import build_exam_summary
 
 app = Flask(__name__)
 # Keep API JSON ASCII-safe so Render/gunicorn never has to emit raw Unicode
@@ -65,9 +70,13 @@ ANALYZE_JOB_DIR = os.path.join(OUTPUT_DIR, "analyze_jobs")
 UID_RE = re.compile(r"^[a-f0-9]{8}$")
 INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
 SAFE_ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+PPTX_DIR = str(config.PPTX_DIR)
+DOCX_DIR = str(config.DOCX_DIR)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(ANALYZE_JOB_DIR, exist_ok=True)
+os.makedirs(PPTX_DIR, exist_ok=True)
+os.makedirs(DOCX_DIR, exist_ok=True)
 ERROR_LOG_FILE = os.path.join(OUTPUT_DIR, "server_errors.log")
 OCRMYPDF_BIN = shutil.which("ocrmypdf")
 TESSERACT_BIN = shutil.which("tesseract")
@@ -325,6 +334,132 @@ def _is_truthy(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _coerce_int(value, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if min_value is not None:
+        parsed = max(min_value, parsed)
+    if max_value is not None:
+        parsed = min(max_value, parsed)
+    return parsed
+
+
+def _parse_exam_settings(data, pdf_name: str = "") -> dict:
+    return {
+        "exam_enabled": _is_truthy(data.get("exam_enabled", "true")),
+        "question_count": _coerce_int(data.get("question_count", 10), 10, 1, 40),
+        "difficulty_easy": _coerce_int(data.get("difficulty_easy", 20), 20, 0, 100),
+        "difficulty_medium": _coerce_int(data.get("difficulty_medium", 60), 60, 0, 100),
+        "difficulty_hard": _coerce_int(data.get("difficulty_hard", 20), 20, 0, 100),
+        "shuffle_versions": _is_truthy(data.get("shuffle_versions", "false")),
+        "institution_name": str(data.get("institution_name", "") or "").strip(),
+        "exam_date": str(data.get("exam_date", "") or "").strip(),
+        "time_limit_minutes": _coerce_int(data.get("time_limit_minutes", 0), 0, 0, 600),
+        "course_name": str(data.get("course_name") or pdf_name or "Teach-On 시험지").strip(),
+    }
+
+
+def _pptx_output_path(uid: str) -> str:
+    return os.path.join(PPTX_DIR, f"{uid}.pptx")
+
+
+def _artifact_docx_path(uid: str, kind: str) -> str:
+    return os.path.join(DOCX_DIR, f"{uid}_{kind}.docx")
+
+
+def _artifact_download_name(payload: dict, kind: str, requested_name: str | None = None) -> str:
+    base_ppt_name = _sanitize_download_name(
+        requested_name,
+        payload.get("download_name") or _default_download_name(payload.get("pdf_name", "")),
+    )
+    base = os.path.splitext(base_ppt_name)[0]
+    if kind == "ppt":
+        return f"{base}.pptx"
+
+    suffix_map = {
+        "exam": "_문제지",
+        "answer": "_정답지",
+        "exam_a": "_문제지_A형",
+        "exam_b": "_문제지_B형",
+    }
+    suffix = suffix_map.get(kind, f"_{kind}")
+    return f"{base}{suffix}.docx"
+
+
+def _persist_ppt_artifact(uid: str, slides_data: list[dict], design: dict, assets: list[dict]) -> dict:
+    resolved_assets = _resolve_media_assets(assets)
+    buf = generate_pptx_bytes(slides_data, design, resolved_assets)
+    raw = buf.getvalue()
+    with open(_pptx_output_path(uid), "wb") as handle:
+        handle.write(raw)
+    buf.seek(0)
+    return {
+        "kind": "ppt",
+        "filename": f"{uid}.pptx",
+        "path": _pptx_output_path(uid),
+        "size": len(raw),
+    }
+
+
+def _persist_exam_artifacts(uid: str, questions: list[dict], exam_settings: dict) -> dict[str, dict]:
+    if not exam_settings.get("exam_enabled") or not questions:
+        return {}
+    return save_exam_artifacts(uid, questions, exam_settings)
+
+
+def _artifact_response_fields(uid: str, artifacts: dict[str, dict]) -> dict:
+    response = {
+        "artifacts": {
+            kind: {k: v for k, v in meta.items() if k != "path"}
+            for kind, meta in (artifacts or {}).items()
+        }
+    }
+    if "ppt" in artifacts:
+        response["pptx_uid"] = uid
+    if "exam" in artifacts:
+        response["exam_docx_uid"] = uid
+    if "answer" in artifacts:
+        response["answer_docx_uid"] = uid
+    if "exam_a" in artifacts:
+        response["exam_a_uid"] = uid
+    if "exam_b" in artifacts:
+        response["exam_b_uid"] = uid
+    return response
+
+
+def _with_formatter_state(agent_trace: list[dict] | None, message: str, status: str = "completed") -> list[dict]:
+    trace = deepcopy(agent_trace or build_initial_agent_trace())
+    now = datetime.utcnow().isoformat() + "Z"
+    found = False
+    for row in trace:
+        if row.get("key") != "formatter":
+            continue
+        row["status"] = status
+        row["message"] = message
+        row["started_at"] = row.get("started_at") or now
+        row["finished_at"] = now if status in {"completed", "failed"} else None
+        row["updated_at"] = now
+        row["attempt"] = max(1, int(row.get("attempt") or 0) + (0 if row.get("started_at") else 1))
+        found = True
+        break
+    if not found:
+        trace.append(
+            {
+                "key": "formatter",
+                "label": "Formatter",
+                "status": status,
+                "message": message,
+                "started_at": now,
+                "finished_at": now if status in {"completed", "failed"} else None,
+                "updated_at": now,
+                "attempt": 1,
+            }
+        )
+    return trace
+
+
 def _prepare_slide_package(slides_data: list[dict], assets: list[dict] | None, selected_pages: list[int] | None = None):
     reviewed = review_slides(slides_data, selected_pages=selected_pages)
     image_enriched = attach_pdf_images_to_slides(reviewed["slides"], assets)
@@ -452,15 +587,17 @@ def _run_analysis_pipeline(
     page_range: str | None,
     extra_prompt: str | None,
     lecture_goal: str | None,
+    exam_settings: dict | None,
+    pdf_name: str,
     progress=None,
 ):
     analysis_pdf_path = pdf_path
     ocr_used = False
     ocr_error = None
 
-    def notify(stage: str, message: str):
+    def notify(stage: str, message: str, agents: list[dict] | None = None):
         if callable(progress):
-            progress(stage, message)
+            progress(stage, message, agents=agents)
 
     try:
         notify("start", "PDF를 확인하고 분석을 준비하고 있습니다...")
@@ -471,77 +608,27 @@ def _run_analysis_pipeline(
         notify("resolve_page_selection", "사용할 페이지 범위를 정리하고 있습니다...")
         page_plan = resolve_page_selection(analysis_pdf_path, page_range or None, max_pages_per_chunk=100)
         page_plan_preview = build_page_plan_preview(analysis_pdf_path, page_plan)
-
-        try:
-            notify("analyze_pdf_primary", "Claude AI가 슬라이드 초안을 만들고 있습니다...")
-            slides_data = analyze_pdf(
-                analysis_pdf_path,
-                slide_count,
-                page_range=page_range or None,
-                extra_prompt=extra_prompt or None,
-                page_plan=page_plan,
-                lecture_goal=lecture_goal,
-            )
-        except UnicodeEncodeError:
-            notify("analyze_pdf_ascii_safe_retry", "인코딩 안전 모드로 다시 분석하고 있습니다...")
-            slides_data = analyze_pdf(
-                analysis_pdf_path,
-                slide_count,
-                page_range=page_range or None,
-                extra_prompt=extra_prompt or None,
-                ascii_safe_mode=True,
-                page_plan=page_plan,
-                lecture_goal=lecture_goal,
-            )
-
-        notify("review_slides", "슬라이드 구조를 점검하고 있습니다...")
-        reviewed = review_slides(slides_data, selected_pages=page_plan["selected_pages"])
-
-        notify("collect_asset_pages", "이미지 후보 페이지를 고르고 있습니다...")
-        asset_pages = _candidate_asset_pages(reviewed["slides"], page_plan["selected_pages"])
-
-        notify("extract_pdf_images", "필요한 PDF 이미지만 추출하고 있습니다...")
-        assets = []
-        if asset_pages:
-            assets = extract_pdf_images(
-                analysis_pdf_path,
-                asset_pages,
-                _asset_bundle_dir(uid),
-                bundle_uid=uid,
-                max_total=max(36, min(len(reviewed["slides"]) * 3, 96)),
-                max_per_page=3,
-            )
-
-        notify("attach_pdf_images", "슬라이드에 이미지를 연결하고 있습니다...")
-        prepared = _prepare_slide_package(
-            reviewed["slides"],
-            assets,
-            selected_pages=page_plan["selected_pages"],
+        notify("multi_agent_start", "멀티 에이전트가 draft를 만들고 있습니다...", build_initial_agent_trace())
+        result = run_full_pipeline(
+            uid=uid,
+            pdf_path=analysis_pdf_path,
+            slide_count=slide_count,
+            page_range=page_range or None,
+            extra_prompt=extra_prompt or None,
+            lecture_goal=lecture_goal or "standard",
+            page_plan=page_plan,
+            page_plan_preview=page_plan_preview,
+            exam_settings=exam_settings,
+            asset_bundle_dir=_asset_bundle_dir(uid),
+            pdf_name=pdf_name,
+            progress_cb=notify,
         )
-
-        notify("build_response", "분석 결과를 정리하고 있습니다...")
-        return {
-            "ok": True,
-            "slides": prepared["slides"],
-            "outline": prepared["outline"],
-            "quality": prepared["quality"],
-            "assets": assets,
-            "asset_count": len(assets),
-            "uid": uid,
-            "auto_slide_count": auto_slide_count,
-            "lecture_goal": lecture_goal or "standard",
-            "page_plan": {
-                "mode": page_plan["mode"],
-                "page_hint": page_plan.get("page_hint", ""),
-                "selected_pages": page_plan["selected_pages"],
-                "selection_note": page_plan.get("selection_note", ""),
-            },
-            "page_plan_preview": page_plan_preview,
-            "ocr_available": OCR_AVAILABLE,
-            "ocr_used": ocr_used,
-            "ocr_error": ocr_error,
-            "enhance_scans_requested": enhance_scans,
-        }
+        result["auto_slide_count"] = auto_slide_count
+        result["ocr_available"] = OCR_AVAILABLE
+        result["ocr_used"] = ocr_used
+        result["ocr_error"] = ocr_error
+        result["enhance_scans_requested"] = enhance_scans
+        return result
     finally:
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
@@ -558,13 +645,19 @@ def _run_analyze_job(
     page_range: str | None,
     extra_prompt: str | None,
     lecture_goal: str | None,
+    exam_settings: dict | None,
+    pdf_name: str,
 ):
     current_stage = "queued"
+    latest_agents = build_initial_agent_trace()
 
-    def progress(stage: str, message: str):
+    def progress(stage: str, message: str, agents: list[dict] | None = None):
         nonlocal current_stage
+        nonlocal latest_agents
         current_stage = stage
-        _update_analyze_job(job_id, status="running", stage=stage, message=message)
+        if agents is not None:
+            latest_agents = agents
+        _update_analyze_job(job_id, status="running", stage=stage, message=message, agents=latest_agents)
 
     try:
         _update_analyze_job(job_id, status="running", stage="queued", message="분석 작업을 시작하고 있습니다...")
@@ -577,6 +670,8 @@ def _run_analyze_job(
             page_range,
             extra_prompt,
             lecture_goal,
+            exam_settings,
+            pdf_name,
             progress=progress,
         )
         _update_analyze_job(
@@ -585,6 +680,7 @@ def _run_analyze_job(
             stage="completed",
             message="분석이 완료되었습니다.",
             result=result,
+            agents=result.get("agent_trace", latest_agents),
             finished_at=datetime.utcnow().isoformat() + "Z",
         )
     except Exception as exc:
@@ -597,6 +693,7 @@ def _run_analyze_job(
             message="분석 작업이 실패했습니다.",
             error=_safe_error_text(exc),
             error_id=error_id,
+            agents=latest_agents,
             finished_at=datetime.utcnow().isoformat() + "Z",
         )
 
@@ -631,6 +728,7 @@ def api_analyze():
     page_range = request.form.get("page_range", "").strip()
     extra_prompt = request.form.get("extra_prompt", "").strip()
     lecture_goal = request.form.get("lecture_goal", "standard").strip() or "standard"
+    exam_settings = _parse_exam_settings(request.form, file.filename)
 
     uid = uuid.uuid4().hex[:8]
     pdf_path = os.path.join(UPLOAD_DIR, f"{uid}.pdf")
@@ -646,6 +744,8 @@ def api_analyze():
             page_range or None,
             extra_prompt or None,
             lecture_goal,
+            exam_settings,
+            file.filename,
         )
         return _json_response(result)
     except Exception as exc:
@@ -677,6 +777,7 @@ def api_analyze_start():
     page_range = request.form.get("page_range", "").strip()
     extra_prompt = request.form.get("extra_prompt", "").strip()
     lecture_goal = request.form.get("lecture_goal", "standard").strip() or "standard"
+    exam_settings = _parse_exam_settings(request.form, file.filename)
 
     job_id = uuid.uuid4().hex[:8]
     pdf_path = _uploaded_pdf_path(job_id)
@@ -689,6 +790,7 @@ def api_analyze_start():
             "status": "queued",
             "stage": "queued",
             "message": "분석 작업을 대기열에 올렸습니다...",
+            "agents": build_initial_agent_trace(),
             "created_at": datetime.utcnow().isoformat() + "Z",
             "updated_at": datetime.utcnow().isoformat() + "Z",
         },
@@ -705,12 +807,14 @@ def api_analyze_start():
             page_range or None,
             extra_prompt or None,
             lecture_goal,
+            exam_settings,
+            file.filename,
         ),
         daemon=True,
     )
     worker.start()
 
-    return _json_response({"ok": True, "job_id": job_id, "status": "queued"})
+    return _json_response({"ok": True, "job_id": job_id, "status": "queued", "agents": build_initial_agent_trace()})
 
 
 @app.route("/api/analyze/status/<job_id>", methods=["GET"])
@@ -857,6 +961,12 @@ def api_generate():
     page_plan_preview = body.get("page_plan_preview", {})
     lecture_goal = body.get("lecture_goal", "standard")
     pdf_name = body.get("pdf_name", "강의교안")
+    questions = body.get("questions", [])
+    exam_summary = body.get("exam_summary") or build_exam_summary(questions)
+    exam_settings = _parse_exam_settings(body, pdf_name)
+    curriculum = body.get("curriculum", {})
+    agent_trace = body.get("agent_trace") or build_initial_agent_trace()
+    pm_summary = body.get("pm_summary", {})
 
     if not slides_data:
         return jsonify({"error": "슬라이드 데이터 없음"}), 400
@@ -867,6 +977,10 @@ def api_generate():
     try:
         prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan.get("selected_pages"))
         prepared_slides = prepared["slides"]
+        ppt_meta = _persist_ppt_artifact(uid, prepared_slides, design, assets)
+        docx_meta = _persist_exam_artifacts(uid, questions, exam_settings)
+        artifacts = {"ppt": ppt_meta, **docx_meta}
+        final_trace = _with_formatter_state(agent_trace, "PPT 및 Word 산출물을 생성했습니다.")
 
         _save_saved_payload(
             uid,
@@ -881,6 +995,13 @@ def api_generate():
                 "lecture_goal": lecture_goal,
                 "pdf_name": pdf_name,
                 "download_name": download_name,
+                "questions": questions,
+                "exam_summary": exam_summary,
+                "exam_settings": exam_settings,
+                "agent_trace": final_trace,
+                "curriculum": curriculum,
+                "pm_summary": pm_summary,
+                "artifacts": artifacts,
             },
         )
 
@@ -896,6 +1017,10 @@ def api_generate():
                 "download_name": download_name,
                 "page_plan_preview": page_plan_preview,
                 "lecture_goal": lecture_goal,
+                "question_count": len(questions or []),
+                "exam_summary": exam_summary,
+                "agent_trace": final_trace,
+                **_artifact_response_fields(uid, artifacts),
             }
         )
     except Exception as exc:
@@ -922,6 +1047,13 @@ def api_slides(uid):
             payload["quality"] = build_quality_summary(payload.get("slides", []))
         payload.setdefault("lecture_goal", "standard")
         payload.setdefault("page_plan_preview", {})
+        payload.setdefault("questions", [])
+        payload.setdefault("exam_summary", build_exam_summary(payload.get("questions", [])))
+        payload.setdefault("exam_settings", _parse_exam_settings(payload, payload.get("pdf_name", "")))
+        payload.setdefault("agent_trace", build_initial_agent_trace())
+        payload.setdefault("curriculum", {})
+        payload.setdefault("pm_summary", {})
+        payload.setdefault("artifacts", {})
         return jsonify(payload)
     except Exception as exc:
         error_id = _record_exception("api_slides", exc)
@@ -980,6 +1112,14 @@ def api_update_slides(uid):
     page_plan_preview = body.get("page_plan_preview", payload.get("page_plan_preview", {}))
     lecture_goal = body.get("lecture_goal", payload.get("lecture_goal", "standard"))
     pdf_name = body.get("pdf_name", payload.get("pdf_name", "강의교안"))
+    questions = body.get("questions", payload.get("questions", []))
+    exam_summary = body.get("exam_summary", payload.get("exam_summary") or build_exam_summary(questions))
+    exam_settings = _parse_exam_settings(body, pdf_name)
+    if "exam_enabled" not in body and payload.get("exam_settings"):
+        exam_settings = payload.get("exam_settings")
+    agent_trace = body.get("agent_trace", payload.get("agent_trace") or build_initial_agent_trace())
+    curriculum = body.get("curriculum", payload.get("curriculum", {}))
+    pm_summary = body.get("pm_summary", payload.get("pm_summary", {}))
 
     download_name = _sanitize_download_name(
         body.get("download_name"),
@@ -989,6 +1129,9 @@ def api_update_slides(uid):
     try:
         prepared = _prepare_slide_package(slides_data, assets, selected_pages=page_plan.get("selected_pages"))
         prepared_slides = prepared["slides"]
+        artifacts = dict(payload.get("artifacts") or {})
+        artifacts["ppt"] = _persist_ppt_artifact(uid, prepared_slides, design, assets)
+        final_trace = _with_formatter_state(agent_trace, "슬라이드 수정 후 PPT를 다시 생성했습니다.")
         updated_payload = {
             **payload,
             "slides": prepared_slides,
@@ -1001,6 +1144,13 @@ def api_update_slides(uid):
             "lecture_goal": lecture_goal,
             "pdf_name": pdf_name,
             "download_name": download_name,
+            "questions": questions,
+            "exam_summary": exam_summary,
+            "exam_settings": exam_settings,
+            "agent_trace": final_trace,
+            "curriculum": curriculum,
+            "pm_summary": pm_summary,
+            "artifacts": artifacts,
         }
         _save_saved_payload(uid, updated_payload)
         return jsonify(
@@ -1015,6 +1165,11 @@ def api_update_slides(uid):
                 "page_plan": page_plan,
                 "page_plan_preview": page_plan_preview,
                 "lecture_goal": lecture_goal,
+                "questions": questions,
+                "exam_summary": exam_summary,
+                "exam_settings": exam_settings,
+                "agent_trace": final_trace,
+                **_artifact_response_fields(uid, artifacts),
             }
         )
     except Exception as exc:
@@ -1084,6 +1239,14 @@ def api_apply_slide_variant(uid, slide_index):
     page_plan_preview = body.get("page_plan_preview", payload.get("page_plan_preview", {}))
     lecture_goal = body.get("lecture_goal", payload.get("lecture_goal", "standard"))
     pdf_name = body.get("pdf_name", payload.get("pdf_name", "강의교안"))
+    questions = body.get("questions", payload.get("questions", []))
+    exam_summary = body.get("exam_summary", payload.get("exam_summary") or build_exam_summary(questions))
+    exam_settings = _parse_exam_settings(body, pdf_name)
+    if "exam_enabled" not in body and payload.get("exam_settings"):
+        exam_settings = payload.get("exam_settings")
+    agent_trace = body.get("agent_trace", payload.get("agent_trace") or build_initial_agent_trace())
+    curriculum = body.get("curriculum", payload.get("curriculum", {}))
+    pm_summary = body.get("pm_summary", payload.get("pm_summary", {}))
     download_name = _sanitize_download_name(
         body.get("download_name"),
         payload.get("download_name") or _default_download_name(pdf_name),
@@ -1093,6 +1256,9 @@ def api_apply_slide_variant(uid, slide_index):
         next_slides = list(slides)
         next_slides[slide_index] = variant_slide
         prepared = _prepare_slide_package(next_slides, assets, selected_pages=page_plan.get("selected_pages"))
+        artifacts = dict(payload.get("artifacts") or {})
+        artifacts["ppt"] = _persist_ppt_artifact(uid, prepared["slides"], design, assets)
+        final_trace = _with_formatter_state(agent_trace, "시안 적용 후 PPT를 다시 생성했습니다.")
         updated_payload = {
             **payload,
             "slides": prepared["slides"],
@@ -1105,6 +1271,13 @@ def api_apply_slide_variant(uid, slide_index):
             "lecture_goal": lecture_goal,
             "pdf_name": pdf_name,
             "download_name": download_name,
+            "questions": questions,
+            "exam_summary": exam_summary,
+            "exam_settings": exam_settings,
+            "agent_trace": final_trace,
+            "curriculum": curriculum,
+            "pm_summary": pm_summary,
+            "artifacts": artifacts,
         }
         _save_saved_payload(uid, updated_payload)
         return jsonify(
@@ -1118,6 +1291,11 @@ def api_apply_slide_variant(uid, slide_index):
                 "page_plan": page_plan,
                 "page_plan_preview": page_plan_preview,
                 "lecture_goal": lecture_goal,
+                "questions": questions,
+                "exam_summary": exam_summary,
+                "exam_settings": exam_settings,
+                "agent_trace": final_trace,
+                **_artifact_response_fields(uid, artifacts),
             }
         )
     except Exception as exc:
@@ -1138,26 +1316,65 @@ def download(uid):
     if not payload:
         return jsonify({"error": "not found"}), 404
 
-    design = payload.get("design") or {"preset": "corporate"}
-    slides_data = payload.get("slides", [])
-    assets = payload.get("assets", [])
-    resolved_assets = _resolve_media_assets(assets)
+    ppt_meta = (payload.get("artifacts") or {}).get("ppt") or {}
+    path = ppt_meta.get("path")
+    if not path or not os.path.exists(path):
+        try:
+            path = _persist_ppt_artifact(
+                uid,
+                payload.get("slides", []),
+                payload.get("design") or {"preset": "corporate"},
+                payload.get("assets", []),
+            )["path"]
+        except Exception as exc:
+            error_id = _record_exception("download_generate_pptx", exc)
+            return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
 
-    try:
-        buf = generate_pptx_bytes(slides_data, design, resolved_assets)
-    except Exception as exc:
-        error_id = _record_exception("download_generate_pptx", exc)
-        return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
-
-    download_name = _sanitize_download_name(
-        request.args.get("name"),
-        payload.get("download_name") or "강의교안.pptx",
-    )
+    download_name = _artifact_download_name(payload, "ppt", request.args.get("name"))
     return send_file(
-        buf,
+        path,
         as_attachment=True,
         download_name=download_name,
         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
+@app.route("/download/<uid>/<artifact_kind>")
+def download_artifact(uid, artifact_kind):
+    if not UID_RE.match(uid):
+        return jsonify({"error": "invalid"}), 400
+    if artifact_kind not in {"exam", "answer", "exam_a", "exam_b"}:
+        return jsonify({"error": "unsupported artifact"}), 400
+
+    payload = _load_saved_payload(uid)
+    if not payload:
+        return jsonify({"error": "not found"}), 404
+
+    artifacts = payload.get("artifacts") or {}
+    meta = artifacts.get(artifact_kind) or {}
+    path = meta.get("path")
+    if not path or not os.path.exists(path):
+        questions = payload.get("questions", [])
+        exam_settings = payload.get("exam_settings") or _parse_exam_settings(payload, payload.get("pdf_name", ""))
+        try:
+            regenerated = _persist_exam_artifacts(uid, questions, exam_settings)
+            artifacts.update(regenerated)
+            payload["artifacts"] = artifacts
+            _save_saved_payload(uid, payload)
+            meta = artifacts.get(artifact_kind) or {}
+            path = meta.get("path")
+        except Exception as exc:
+            error_id = _record_exception("download_generate_docx", exc)
+            return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
+
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "artifact not found"}), 404
+
+    return send_file(
+        path,
+        as_attachment=True,
+        download_name=_artifact_download_name(payload, artifact_kind, request.args.get("name")),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 
 

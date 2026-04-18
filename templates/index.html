@@ -226,6 +226,38 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
 .page-plan-list{display:grid;gap:7px}
 .page-plan-item{font-size:12px;color:var(--text);line-height:1.6;padding:8px 10px;border-radius:9px;background:#fff;border:1px solid var(--border)}
 .page-plan-warn{font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;padding:8px 10px}
+.agent-panel{margin-top:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);padding:14px}
+.agent-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.agent-title{font-size:12px;font-weight:700;color:var(--text)}
+.agent-sub{font-size:11px;color:var(--sub)}
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.agent-card{border:1px solid var(--border);border-radius:12px;background:#fff;padding:12px;display:grid;gap:6px}
+.agent-card.is-running,.agent-card.running{border-color:#BFDBFE;background:#EFF6FF}
+.agent-card.is-completed,.agent-card.completed{border-color:#BBF7D0;background:#F0FDF4}
+.agent-card.is-revise,.agent-card.revise{border-color:#FCD34D;background:#FFFBEB}
+.agent-card.is-failed,.agent-card.failed{border-color:#FECACA;background:#FEF2F2}
+.agent-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.agent-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.agent-name{font-size:12px;font-weight:700}
+.agent-badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:999px;background:var(--card);color:var(--sub)}
+.agent-badge.running{background:#DBEAFE;color:#1D4ED8}
+.agent-badge.completed{background:#DCFCE7;color:#166534}
+.agent-badge.revise{background:#FEF3C7;color:#92400E}
+.agent-badge.failed{background:#FEE2E2;color:#B91C1C}
+.agent-meta{font-size:11px;color:var(--sub);line-height:1.55}
+.agent-message{font-size:11px;color:var(--text);line-height:1.55}
+.exam-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.exam-grid .field.full{grid-column:1 / -1}
+.exam-summary-card{margin-top:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);padding:14px}
+.exam-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}
+.summary-item{border:1px solid var(--border);border-radius:10px;background:#fff;padding:12px}
+.summary-k{font-size:11px;color:var(--sub);font-weight:600}
+.summary-v{font-size:14px;color:var(--text);font-weight:700;margin-top:4px}
+.exam-downloads{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:16px}
+.exam-download-card{border:1px solid var(--border);border-radius:12px;background:var(--bg);padding:14px;text-align:left;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
+.exam-download-card:hover{border-color:#BFD1F3;transform:translateY(-1px)}
+.exam-download-title{font-size:13px;font-weight:700}
+.exam-download-sub{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.5}
 .outline-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 14px}
 .outline-help{font-size:12px;color:var(--sub)}
 .outline-list{display:grid;gap:12px}
@@ -274,6 +306,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
   .modal-body{grid-template-columns:1fr}
   .mini-input-grid{grid-template-columns:1fr}
   .sgrid{grid-template-columns:1fr}
+  .exam-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width: 640px){
   .wrap{padding:24px 14px 56px}
@@ -282,6 +315,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
   .preset-grid,.layout-grid,.form-grid{grid-template-columns:1fr}
   .color-row{flex-wrap:wrap}
   .done-m,.done-b{grid-template-columns:1fr}
+  .exam-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -494,6 +528,83 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         </div>
       </div>
 
+      <div class="card" id="examCard">
+        <div class="card-label">시험지 생성 옵션</div>
+        <div class="exam-grid">
+          <div class="field full">
+            <div class="toggle-row">
+              <div>
+                <div style="font-size:13px;font-weight:600">시험지 / 정답지 함께 생성</div>
+                <div style="font-size:11px;color:var(--sub)">드래프트 분석 단계에서 문제 세트를 만들고, 최종 generate 때 Word 파일로 내려받을 수 있습니다.</div>
+              </div>
+              <div class="toggle-wrap">
+                <span style="font-size:12px;color:var(--sub)" id="examEnabledText">ON</span>
+                <label class="switch">
+                  <input type="checkbox" id="examEnabledToggle" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="questionCountInput">문항 수</label>
+            <input type="number" id="questionCountInput" class="txt-input" value="10" min="1" max="40">
+          </div>
+
+          <div class="field">
+            <label for="examDateInput">시험 날짜</label>
+            <input type="date" id="examDateInput" class="txt-input">
+          </div>
+
+          <div class="field">
+            <label for="timeLimitInput">제한시간 (분)</label>
+            <input type="number" id="timeLimitInput" class="txt-input" value="0" min="0" max="600" placeholder="예: 50">
+          </div>
+
+          <div class="field">
+            <label for="difficultyEasyInput">하 난이도 문항 수</label>
+            <input type="number" id="difficultyEasyInput" class="txt-input" value="2" min="0" max="40">
+          </div>
+
+          <div class="field">
+            <label for="difficultyMediumInput">중 난이도 문항 수</label>
+            <input type="number" id="difficultyMediumInput" class="txt-input" value="6" min="0" max="40">
+          </div>
+
+          <div class="field">
+            <label for="difficultyHardInput">상 난이도 문항 수</label>
+            <input type="number" id="difficultyHardInput" class="txt-input" value="2" min="0" max="40">
+          </div>
+
+          <div class="field">
+            <label for="institutionNameInput">기관명</label>
+            <input type="text" id="institutionNameInput" class="txt-input" placeholder="예: OO대학교 / OO학원">
+          </div>
+
+          <div class="field">
+            <label for="courseNameInput">시험지 과목명</label>
+            <input type="text" id="courseNameInput" class="txt-input" placeholder="예: 동물해부생리학">
+          </div>
+
+          <div class="field">
+            <div class="toggle-row">
+              <div>
+                <div style="font-size:13px;font-weight:600">A/B 셔플 버전 생성</div>
+                <div style="font-size:11px;color:var(--sub)">문제 순서를 섞은 A형, B형 Word 파일을 추가로 만듭니다.</div>
+              </div>
+              <div class="toggle-wrap">
+                <span style="font-size:12px;color:var(--sub)" id="shuffleVersionsText">OFF</span>
+                <label class="switch">
+                  <input type="checkbox" id="shuffleVersionsToggle">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card" id="scanCard">
         <div class="card-label">스캔 PDF 보정 (선택사항)</div>
         <div class="toggle-row">
@@ -517,6 +628,15 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
       </div>
 
       <div class="st" id="st1"></div>
+      <div class="agent-panel" id="agentPanel" hidden>
+        <div class="agent-head">
+          <div>
+            <div class="agent-title">멀티 에이전트 진행 상태</div>
+            <div class="agent-sub">PM, Curriculum, Content, Question, Fact Checker, Reviewer, Layout, Formatter 단계를 실시간으로 표시합니다.</div>
+          </div>
+        </div>
+        <div class="agent-grid" id="agentGrid"></div>
+      </div>
       <button class="btn btn-p btn-full" id="ab" disabled>분석 시작</button>
     </div>
 
@@ -532,6 +652,15 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
         <div class="quality-grid" id="qualityGrid"></div>
         <div class="quality-note" id="qualityNote"></div>
         <div class="warn-list" id="qualityWarnings"></div>
+        <div class="exam-summary-card" id="examSummaryCard" hidden>
+          <div class="summary-head" style="margin-bottom:0">
+            <div>
+              <h3>문제 세트 요약</h3>
+              <div class="summary-sub" id="examSummaryText"></div>
+            </div>
+          </div>
+          <div class="exam-summary-grid" id="examSummaryGrid"></div>
+        </div>
         <div class="outline-toolbar">
           <div class="outline-help">이 단계에서 제목, 포인트, 근거 페이지, 레이아웃, 순서를 먼저 다듬은 뒤 PPT를 생성할 수 있습니다.</div>
           <button class="btn btn-g" id="reviewBtn">품질 점검 다시 적용</button>
@@ -574,6 +703,7 @@ textarea.txt-input{resize:vertical;min-height:78px;line-height:1.5}
             <button class="btn btn-p" id="pvb">👁 슬라이드 미리보기</button>
             <button class="btn btn-g" id="rb">새 파일 만들기</button>
           </div>
+          <div class="exam-downloads" id="artifactDownloads" hidden></div>
         </div>
       </div>
     </div>
@@ -704,6 +834,32 @@ const LECTURE_GOAL_LABELS = {
   briefing: '짧은 브리핑형',
 };
 
+const AGENT_LABELS = {
+  pm: 'PM',
+  curriculum: 'Curriculum',
+  content: 'Content',
+  question: 'Question',
+  fact_checker: 'Fact Checker',
+  reviewer: 'Reviewer',
+  layout: 'Layout',
+  formatter: 'Formatter',
+};
+
+const AGENT_STATUS_LABELS = {
+  queued: '대기',
+  running: '진행 중',
+  completed: '완료',
+  revise: '재작업',
+  failed: '실패',
+};
+
+const QUESTION_TYPE_LABELS = {
+  multiple_choice_single: '객관식',
+  multiple_choice_multi: '다중선택',
+  subjective_short: '주관식(단답)',
+  subjective_long: '주관식(서술)',
+};
+
 function createDefaultDesign() {
   return {
     preset: 'corporate',
@@ -720,6 +876,21 @@ function createDefaultDesign() {
     footer_enabled: true,
     slide_number: true,
     content_layout: 'auto',
+  };
+}
+
+function createDefaultExamSettings(pdfName = '') {
+  return {
+    exam_enabled: true,
+    question_count: 10,
+    difficulty_easy: 2,
+    difficulty_medium: 6,
+    difficulty_hard: 2,
+    shuffle_versions: false,
+    institution_name: '',
+    exam_date: '',
+    time_limit_minutes: 0,
+    course_name: String(pdfName || '').replace(/\.pdf$/i, '').trim(),
   };
 }
 
@@ -743,6 +914,13 @@ function createInitialState() {
     ocr_used: false,
     ocr_note: '',
     assets: [],
+    questions: [],
+    exam_summary: null,
+    agent_trace: [],
+    exam_settings: createDefaultExamSettings(),
+    artifacts: {},
+    curriculum: {},
+    pm_summary: {},
     design,
     designDraft: cloneDesign(design),
   };
@@ -770,6 +948,57 @@ function parseLines(value) {
 
 function lectureGoalLabel(value) {
   return LECTURE_GOAL_LABELS[value] || LECTURE_GOAL_LABELS.standard;
+}
+
+function normalizeExamSettings(value, pdfName = '') {
+  const base = createDefaultExamSettings(pdfName);
+  const merged = { ...base, ...(value || {}) };
+  merged.exam_enabled = merged.exam_enabled !== false;
+  merged.question_count = Math.max(1, Math.min(40, parseInt(merged.question_count, 10) || base.question_count));
+  merged.difficulty_easy = Math.max(0, Math.min(40, parseInt(merged.difficulty_easy, 10) || 0));
+  merged.difficulty_medium = Math.max(0, Math.min(40, parseInt(merged.difficulty_medium, 10) || 0));
+  merged.difficulty_hard = Math.max(0, Math.min(40, parseInt(merged.difficulty_hard, 10) || 0));
+  merged.shuffle_versions = !!merged.shuffle_versions;
+  merged.time_limit_minutes = Math.max(0, Math.min(600, parseInt(merged.time_limit_minutes, 10) || 0));
+  merged.institution_name = String(merged.institution_name || '').trim();
+  merged.exam_date = String(merged.exam_date || '').trim();
+  merged.course_name = String(merged.course_name || '').trim() || base.course_name;
+  return merged;
+}
+
+function currentExamSettings() {
+  return normalizeExamSettings({
+    exam_enabled: $('examEnabledToggle').checked,
+    question_count: $('questionCountInput').value,
+    difficulty_easy: $('difficultyEasyInput').value,
+    difficulty_medium: $('difficultyMediumInput').value,
+    difficulty_hard: $('difficultyHardInput').value,
+    shuffle_versions: $('shuffleVersionsToggle').checked,
+    institution_name: $('institutionNameInput').value,
+    exam_date: $('examDateInput').value,
+    time_limit_minutes: $('timeLimitInput').value,
+    course_name: $('courseNameInput').value,
+  }, S.file?.name || '');
+}
+
+function hydrateExamControls() {
+  S.exam_settings = normalizeExamSettings(S.exam_settings, S.file?.name || '');
+  $('examEnabledToggle').checked = !!S.exam_settings.exam_enabled;
+  $('questionCountInput').value = S.exam_settings.question_count;
+  $('difficultyEasyInput').value = S.exam_settings.difficulty_easy;
+  $('difficultyMediumInput').value = S.exam_settings.difficulty_medium;
+  $('difficultyHardInput').value = S.exam_settings.difficulty_hard;
+  $('shuffleVersionsToggle').checked = !!S.exam_settings.shuffle_versions;
+  $('institutionNameInput').value = S.exam_settings.institution_name || '';
+  $('examDateInput').value = S.exam_settings.exam_date || '';
+  $('timeLimitInput').value = S.exam_settings.time_limit_minutes || 0;
+  $('courseNameInput').value = S.exam_settings.course_name || '';
+}
+
+function applyExamSettingsToInputs(settings) {
+  S.exam_settings = normalizeExamSettings(settings, S.file?.name || '');
+  hydrateExamControls();
+  syncExamControls();
 }
 
 function resetPagePlanPreview() {
@@ -811,6 +1040,121 @@ function renderPagePlanPreview() {
     $('pagePlanPreviewWarn').textContent = '';
   }
   $('pagePlanPreviewBox').hidden = false;
+}
+
+function syncExamControls() {
+  S.exam_settings = currentExamSettings();
+  const enabled = !!S.exam_settings.exam_enabled;
+  $('examEnabledText').textContent = enabled ? 'ON' : 'OFF';
+  $('shuffleVersionsText').textContent = $('shuffleVersionsToggle').checked ? 'ON' : 'OFF';
+
+  [
+    'questionCountInput',
+    'difficultyEasyInput',
+    'difficultyMediumInput',
+    'difficultyHardInput',
+    'institutionNameInput',
+    'examDateInput',
+    'timeLimitInput',
+    'courseNameInput',
+    'shuffleVersionsToggle',
+  ].forEach(id => {
+    $(id).disabled = !enabled || !S.file;
+  });
+}
+
+function renderAgentTrace(agents = S.agent_trace || []) {
+  const panel = $('agentPanel');
+  const grid = $('agentGrid');
+  if (!Array.isArray(agents) || !agents.length) {
+    panel.hidden = true;
+    grid.innerHTML = '';
+    return;
+  }
+
+  S.agent_trace = agents;
+  panel.hidden = false;
+  grid.innerHTML = agents.map(agent => {
+    const key = String(agent.key || '');
+    const status = String(agent.status || 'queued');
+    const attempt = Math.max(1, parseInt(agent.attempt, 10) || 1);
+    const meta = [];
+    if (attempt > 1) meta.push(`시도 ${attempt}`);
+    if (agent.finished_at && status === 'completed') meta.push('완료');
+    if (status === 'revise') meta.push('재작업');
+    return `
+      <div class="agent-card ${escAttr(status)}">
+        <div class="agent-top">
+          <div class="agent-name">${esc(agent.label || AGENT_LABELS[key] || key || 'Agent')}</div>
+          <span class="agent-badge ${escAttr(status)}">${esc(AGENT_STATUS_LABELS[status] || status)}</span>
+        </div>
+        <div class="agent-message">${esc(agent.message || '대기 중입니다.')}</div>
+        <div class="agent-meta">${esc(meta.join(' · ') || '초기화됨')}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderExamSummary() {
+  S.exam_settings = normalizeExamSettings(S.exam_settings, S.file?.name || '');
+  const card = $('examSummaryCard');
+  const summary = S.exam_summary;
+  if (!S.exam_settings.exam_enabled || !summary || !summary.count) {
+    card.hidden = true;
+    $('examSummaryText').textContent = '';
+    $('examSummaryGrid').innerHTML = '';
+    return;
+  }
+
+  const diffCounts = summary.difficulty_counts || {};
+  const typeCounts = summary.type_counts || {};
+  const typeRows = Object.entries(typeCounts)
+    .map(([key, count]) => `${QUESTION_TYPE_LABELS[key] || key}: ${count}`)
+    .join(' · ');
+
+  $('examSummaryText').textContent = `총 ${summary.count}문항 · 난이도 ${diffCounts['하'] || 0}/${diffCounts['중'] || 0}/${diffCounts['상'] || 0}${typeRows ? ` · ${typeRows}` : ''}`;
+  $('examSummaryGrid').innerHTML = `
+    <div class="summary-item"><div class="summary-k">문항 수</div><div class="summary-v">${esc(summary.count)}</div></div>
+    <div class="summary-item"><div class="summary-k">난이도 (하/중/상)</div><div class="summary-v">${esc(`${diffCounts['하'] || 0} / ${diffCounts['중'] || 0} / ${diffCounts['상'] || 0}`)}</div></div>
+    <div class="summary-item"><div class="summary-k">A/B 셔플</div><div class="summary-v">${S.exam_settings.shuffle_versions ? '사용' : '미사용'}</div></div>
+    <div class="summary-item"><div class="summary-k">과목명</div><div class="summary-v">${esc(S.exam_settings.course_name || '자동')}</div></div>
+  `;
+  card.hidden = false;
+}
+
+function buildArtifactUrl(kind) {
+  if (!S.preview_uid) return '#';
+  if (kind === 'ppt') return buildDownloadUrl(S.preview_uid, $('downloadNameInput').value);
+  const params = new URLSearchParams();
+  const currentName = $('downloadNameInput').value.trim();
+  if (currentName) params.set('name', currentName);
+  const qs = params.toString();
+  return `/download/${encodeURIComponent(S.preview_uid)}/${encodeURIComponent(kind)}${qs ? `?${qs}` : ''}`;
+}
+
+function renderArtifactDownloads() {
+  const box = $('artifactDownloads');
+  const artifacts = S.artifacts || {};
+  const entries = [
+    { kind: 'exam', title: '문제지', sub: 'Word 문제지 다운로드' },
+    { kind: 'answer', title: '정답지', sub: '정답 및 해설 Word 다운로드' },
+    { kind: 'exam_a', title: 'A형 문제지', sub: '셔플된 A형 버전' },
+    { kind: 'exam_b', title: 'B형 문제지', sub: '셔플된 B형 버전' },
+  ].filter(item => artifacts[item.kind]);
+
+  if (!entries.length) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+
+  box.hidden = false;
+  box.innerHTML = entries.map(item => `
+    <a class="exam-download-card" href="${buildArtifactUrl(item.kind)}">
+      <div class="exam-download-title">${esc(item.title)}</div>
+      <div class="exam-download-sub">${esc(item.sub)}</div>
+    </a>
+  `).join('');
 }
 
 function setSt(id, type, msg) {
@@ -882,6 +1226,10 @@ async function pollAnalyzeJob(jobId) {
 
     retryableFailureStartedAt = null;
     missingJobStartedAt = null;
+    if (Array.isArray(data.agents)) {
+      S.agent_trace = data.agents;
+      renderAgentTrace(data.agents);
+    }
 
     if (data.status === 'completed' && data.result) {
       return data.result;
@@ -1073,9 +1421,11 @@ function syncUploadLockedState() {
 
   setCardLocked('oc', !hasFile, uploadReason);
   setCardLocked('dc', !hasFile, uploadReason);
+  setCardLocked('examCard', !hasFile, uploadReason);
   setCardLocked('pc', !hasFile, uploadReason);
   setCardLocked('epc', !hasFile, uploadReason);
   updateSlideCountUI();
+  syncExamControls();
 }
 
 function syncScanControls() {
@@ -1407,17 +1757,33 @@ function setFile(file) {
   S.file = file;
   S.download_name = defaultDownloadName(file.name);
   S.page_plan = null;
+  S.page_plan_preview = null;
+  S.questions = [];
+  S.exam_summary = null;
+  S.agent_trace = [];
+  S.artifacts = {};
   resetPagePlanPreview();
   $('di').textContent = '✅';
   $('dt').textContent = file.name;
   $('df').style.display = 'block';
   $('df').textContent = (file.size / 1024).toFixed(0) + ' KB';
   dz.classList.add('ok');
+  S.exam_settings = normalizeExamSettings(
+    {
+      ...S.exam_settings,
+      course_name: $('courseNameInput').value.trim() || file.name.replace(/\.pdf$/i, ''),
+    },
+    file.name
+  );
+  applyExamSettingsToInputs(S.exam_settings);
   showDesignCards();
   $('ab').disabled = false;
   hideSt('st1');
   $('downloadNameInput').value = S.download_name;
   ensureDesignMeta();
+  renderAgentTrace(S.agent_trace);
+  renderExamSummary();
+  renderArtifactDownloads();
 }
 
 $('bm').onclick = () => { if (S.cnt > 5) { S.cnt -= 1; $('cv').textContent = S.cnt; } };
@@ -1426,12 +1792,50 @@ $('autoSlideCount').addEventListener('change', e => {
   S.auto_slide_count = e.target.checked;
   updateSlideCountUI();
 });
+$('examEnabledToggle').addEventListener('change', () => {
+  syncExamControls();
+  renderExamSummary();
+});
+$('shuffleVersionsToggle').addEventListener('change', () => {
+  syncExamControls();
+});
+[
+  'questionCountInput',
+  'difficultyEasyInput',
+  'difficultyMediumInput',
+  'difficultyHardInput',
+  'institutionNameInput',
+  'courseNameInput',
+  'examDateInput',
+  'timeLimitInput',
+].forEach(id => {
+  $(id).addEventListener('input', () => {
+    S.exam_settings = currentExamSettings();
+    renderExamSummary();
+  });
+});
 $('lectureGoalSelect').addEventListener('change', e => {
   S.lecture_goal = e.target.value || 'standard';
   if (S.page_plan_preview) {
     S.page_plan_preview.goal_label = lectureGoalLabel(S.lecture_goal);
     renderPagePlanPreview();
   }
+});
+$('examEnabledToggle').addEventListener('change', syncExamControls);
+$('shuffleVersionsToggle').addEventListener('change', syncExamControls);
+[
+  'questionCountInput',
+  'difficultyEasyInput',
+  'difficultyMediumInput',
+  'difficultyHardInput',
+  'institutionNameInput',
+  'courseNameInput',
+  'examDateInput',
+  'timeLimitInput',
+].forEach(id => {
+  $(id).addEventListener('input', () => {
+    S.exam_settings = currentExamSettings();
+  });
 });
 $('enhanceScansToggle').addEventListener('change', e => {
   S.enhance_scans = e.target.checked;
@@ -1919,12 +2323,20 @@ $('ab').onclick = async () => {
   formData.append('lecture_goal', S.lecture_goal);
   formData.append('page_range', $('pr').value.trim());
   formData.append('extra_prompt', $('ep').value.trim());
+  const examSettings = currentExamSettings();
+  Object.entries(examSettings).forEach(([key, value]) => {
+    formData.append(key, typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value ?? ''));
+  });
 
   try {
     const startResponse = await fetch('/api/analyze/start', { method: 'POST', body: formData, cache: 'no-store' });
     const startData = await readApiPayload(startResponse, '분석 시작');
     if (!startResponse.ok || startData.error) throw new Error(apiErrorMessage(startData, '분석 시작 실패'));
     if (!startData.job_id) throw new Error('분석 작업 ID를 받지 못했습니다.');
+    if (Array.isArray(startData.agents)) {
+      S.agent_trace = startData.agents;
+      renderAgentTrace();
+    }
 
     setSt('st1', 'load', '분석 작업이 시작되었습니다. 상태를 확인하고 있습니다...');
     const data = await pollAnalyzeJob(startData.job_id);
@@ -1935,11 +2347,20 @@ $('ab').onclick = async () => {
     S.page_plan = data.page_plan || null;
     S.page_plan_preview = data.page_plan_preview || S.page_plan_preview;
     S.assets = data.assets || [];
+    S.questions = data.questions || [];
+    S.exam_summary = data.exam_summary || null;
+    S.agent_trace = data.agent_trace || S.agent_trace;
+    S.exam_settings = data.exam_settings || examSettings;
+    S.curriculum = data.curriculum || {};
+    S.pm_summary = data.pm_summary || {};
+    S.artifacts = data.artifacts || {};
     S.ocr_available = !!data.ocr_available;
     S.ocr_used = !!data.ocr_used;
     S.ocr_note = data.ocr_error || (S.enhance_scans && !data.ocr_available ? 'OCR 보정을 요청했지만 현재 서버에서 사용할 수 없습니다.' : '');
+    applyExamSettingsToInputs(S.exam_settings);
     renderPagePlanPreview();
     syncScanControls();
+    renderAgentTrace(S.agent_trace);
     showStepTwo();
   } catch (error) {
     setSt('st1', 'err', '오류: ' + error.message);
@@ -1954,8 +2375,11 @@ function showStepTwo() {
   $('s2').style.display = 'block';
   hideSt('st2');
   const contentCount = S.slides.filter(item => item.type === 'content').length;
-  $('pm').textContent = `총 ${S.slides.length}장 · 콘텐츠 ${contentCount}장 · PDF 이미지 ${S.assets.length}개 추출 · ${lectureGoalLabel(S.lecture_goal)} · ${presetLabel(S.design.preset)} · ${layoutLabel(S.design.content_layout)}`;
+  const questionMeta = S.exam_settings?.exam_enabled ? ` · 문제 ${S.questions.length || S.exam_settings.question_count || 0}개 초안` : '';
+  $('pm').textContent = `총 ${S.slides.length}장 · 콘텐츠 ${contentCount}장 · PDF 이미지 ${S.assets.length}개 추출${questionMeta} · ${lectureGoalLabel(S.lecture_goal)} · ${presetLabel(S.design.preset)} · ${layoutLabel(S.design.content_layout)}`;
+  renderAgentTrace(S.agent_trace);
   renderQualitySummary();
+  renderExamSummary();
   renderOutlineEditor();
   renderSlideCards();
 }
@@ -2041,6 +2465,12 @@ $('gb').onclick = async () => {
         design: S.design,
         pdf_name: S.file.name,
         lecture_goal: S.lecture_goal,
+        questions: S.questions,
+        exam_summary: S.exam_summary,
+        exam_settings: S.exam_settings,
+        agent_trace: S.agent_trace,
+        curriculum: S.curriculum,
+        pm_summary: S.pm_summary,
       }),
     });
     const data = await readApiPayload(response, '생성');
@@ -2048,7 +2478,11 @@ $('gb').onclick = async () => {
 
     S.preview_uid = data.preview_uid;
     S.download_name = data.download_name || S.download_name || defaultDownloadName(S.file.name);
+    S.artifacts = data.artifacts || {};
+    S.agent_trace = data.agent_trace || S.agent_trace;
+    S.exam_summary = data.exam_summary || S.exam_summary;
     applyDoneSummary(data.preset, data.slide_count);
+    renderArtifactDownloads();
     $('s2').style.display = 'none';
     $('s3').style.display = 'block';
   } catch (error) {
@@ -2081,6 +2515,7 @@ $('rb').onclick = () => {
   $('ep').value = '';
   $('lectureGoalSelect').value = 'standard';
   $('downloadNameInput').value = '';
+  applyExamSettingsToInputs(S.exam_settings);
   $('cv').textContent = '10';
   $('autoSlideCount').checked = false;
   $('enhanceScansToggle').checked = false;
@@ -2096,6 +2531,9 @@ $('rb').onclick = () => {
   syncUploadLockedState();
   syncScanControls();
   resetPagePlanPreview();
+  renderAgentTrace();
+  renderExamSummary();
+  renderArtifactDownloads();
 };
 
 async function restorePreviewSession(uid) {
@@ -2114,6 +2552,13 @@ async function restorePreviewSession(uid) {
     nextState.page_plan = data.page_plan || null;
     nextState.page_plan_preview = data.page_plan_preview || null;
     nextState.assets = data.assets || [];
+    nextState.questions = data.questions || [];
+    nextState.exam_summary = data.exam_summary || null;
+    nextState.exam_settings = data.exam_settings || nextState.exam_settings;
+    nextState.agent_trace = data.agent_trace || [];
+    nextState.artifacts = data.artifacts || {};
+    nextState.curriculum = data.curriculum || {};
+    nextState.pm_summary = data.pm_summary || {};
     nextState.lecture_goal = data.lecture_goal || 'standard';
     nextState.design = normalizeDesignState(data.design || { preset: 'corporate' });
     nextState.designDraft = cloneDesign(nextState.design);
@@ -2122,7 +2567,11 @@ async function restorePreviewSession(uid) {
 
     syncDesignInputs();
     $('lectureGoalSelect').value = S.lecture_goal;
+    applyExamSettingsToInputs(S.exam_settings);
     renderPagePlanPreview();
+    renderAgentTrace();
+    renderExamSummary();
+    renderArtifactDownloads();
     showDesignCards();
     applyDoneSummary(presetLabel(S.design.preset), S.slides.length, '이전에 생성한 결과를 다시 불러왔습니다. 미리보기와 다운로드를 바로 이어서 사용할 수 있습니다.');
     $('s1').style.display = 'none';
@@ -2170,10 +2619,14 @@ syncDesignInputs();
 renderLayoutGrid();
 ensureDesignMeta();
 ensureCapabilities();
+applyExamSettingsToInputs(S.exam_settings);
 updateSlideCountUI();
 syncUploadLockedState();
 $('lectureGoalSelect').value = S.lecture_goal;
 resetPagePlanPreview();
+renderAgentTrace();
+renderExamSummary();
+renderArtifactDownloads();
 
 const resumeUid = PAGE_PARAMS.get('resume');
 if (resumeUid) {
