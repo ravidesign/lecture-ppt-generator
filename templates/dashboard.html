@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teach-On Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0F172A;
+  --panel:#111827;
+  --panel-2:#182131;
+  --card:#1F2937;
+  --card-2:#243247;
+  --line:rgba(255,255,255,.08);
+  --text:#E5E7EB;
+  --sub:#94A3B8;
+  --muted:#64748B;
+  --accent:#3B82F6;
+  --green:#22C55E;
+  --yellow:#F59E0B;
+  --red:#EF4444;
+  --radius:16px;
+}
+html,body{min-height:100%;background:linear-gradient(180deg,#0B1220 0%,#0F172A 100%);font-family:'Noto Sans KR',sans-serif;color:var(--text)}
+a{color:inherit}
+.wrap{max-width:1320px;margin:0 auto;padding:28px 20px 56px}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:24px}
+.brand{display:grid;gap:8px}
+.brand h1{font-size:28px;line-height:1.1;font-weight:800}
+.brand p{font-size:14px;color:var(--sub);max-width:760px;line-height:1.7}
+.top-actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{appearance:none;border:none;border-radius:12px;padding:11px 16px;font-size:13px;font-weight:700;cursor:pointer;background:var(--card);color:var(--text);border:1px solid var(--line);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{background:var(--card-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#2563EB}
+.btn.ghost{background:transparent}
+.hero{display:grid;grid-template-columns:1.25fr .75fr;gap:16px;margin-bottom:16px}
+.panel{background:rgba(17,24,39,.92);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.panel-title{font-size:15px;font-weight:800;margin-bottom:10px}
+.panel-sub{font-size:12px;color:var(--sub);line-height:1.7;margin-bottom:14px}
+.stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.stat-value{font-size:28px;font-weight:800;line-height:1}
+.stat-label{font-size:11px;color:var(--sub);margin-top:8px;text-transform:uppercase;letter-spacing:.06em}
+.security-list{display:grid;gap:10px}
+.finding{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
+.finding-dot{width:12px;height:12px;border-radius:999px;flex-shrink:0;margin-top:5px}
+.finding-dot.ok{background:var(--green)}
+.finding-dot.warn{background:var(--yellow)}
+.finding-dot.err{background:var(--red)}
+.finding-title{font-size:13px;font-weight:700}
+.finding-msg{font-size:12px;color:var(--sub);line-height:1.6;margin-top:2px}
+.token-wrap{display:grid;gap:10px}
+.token-row{display:flex;gap:10px;flex-wrap:wrap}
+.hidden{display:none!important}
+.auth-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.auth-card{display:grid;gap:10px;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+.auth-kicker{font-size:11px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.auth-help{font-size:12px;color:var(--sub);line-height:1.7}
+.input,.textarea,.select{width:100%;border-radius:12px;border:1px solid var(--line);background:#0B1220;color:var(--text);padding:11px 13px;font-family:inherit;font-size:13px;outline:none}
+.textarea{min-height:92px;resize:vertical;line-height:1.6}
+.input:focus,.textarea:focus,.select:focus{border-color:var(--accent)}
+.section{margin-top:16px}
+.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px}
+.section-title{font-size:18px;font-weight:800}
+.section-sub{font-size:12px;color:var(--sub)}
+.grid-2{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+.job-list,.connector-list{display:grid;gap:12px}
+.job-card,.connector-card{background:rgba(17,24,39,.95);border:1px solid var(--line);border-radius:16px;padding:16px}
+.job-top,.connector-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.job-name,.connector-name{font-size:15px;font-weight:800}
+.job-meta,.connector-meta{font-size:12px;color:var(--sub);line-height:1.7;margin-top:4px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800;background:#243247;color:#BFDBFE}
+.badge.ok{background:#123220;color:#BBF7D0}
+.badge.warn{background:#332711;color:#FDE68A}
+.badge.err{background:#3A1414;color:#FECACA}
+.job-actions,.connector-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.job-agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px}
+.agent-chip{padding:10px 12px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
+.agent-chip .name{font-size:11px;font-weight:800}
+.agent-chip .status{font-size:11px;color:var(--sub);margin-top:3px}
+.agent-chip.running{border-color:#60A5FA;background:#10243D}
+.agent-chip.completed{border-color:#22C55E;background:#13281D}
+.agent-chip.revise{border-color:#F59E0B;background:#2B210F}
+.agent-chip.failed{border-color:#EF4444;background:#2C1313}
+.output-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.mini-link{display:inline-flex;align-items:center;padding:7px 10px;border-radius:10px;font-size:12px;font-weight:700;background:#0B1220;border:1px solid var(--line);text-decoration:none}
+.mini-link:hover{border-color:#3B82F6}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form-grid .full{grid-column:1 / -1}
+.status-box{display:none;padding:12px;border-radius:12px;font-size:12px;line-height:1.6;margin-top:12px}
+.status-box.ok{display:block;background:#13281D;color:#BBF7D0;border:1px solid rgba(34,197,94,.22)}
+.status-box.err{display:block;background:#2C1313;color:#FECACA;border:1px solid rgba(239,68,68,.22)}
+.status-box.info{display:block;background:#10243D;color:#BFDBFE;border:1px solid rgba(59,130,246,.22)}
+.empty{padding:18px;border-radius:14px;background:var(--card);border:1px dashed var(--line);color:var(--sub);font-size:13px;line-height:1.7}
+.muted{color:var(--muted)}
+@media (max-width: 1100px){
+  .hero,.grid-2{grid-template-columns:1fr}
+  .stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width: 720px){
+  .top{flex-direction:column}
+  .stat-grid,.form-grid{grid-template-columns:1fr}
+  .auth-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <h1>Teach-On Dashboard</h1>
+      <p>운영 상태, 최근 결과물, 멀티 에이전트 실행 흐름, 외부 프로그램/에이전트 연결을 한 화면에서 관리하는 콘솔입니다. 메인 제작 플로우는 유지하면서도 운영성과 확장성을 확보하는 용도에 맞춰 설계했습니다.</p>
+    </div>
+    <div class="top-actions">
+      <a class="btn" href="/">메인 제작 화면</a>
+      <button type="button" class="btn primary" id="refreshBtn">새로고침</button>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="panel">
+      <div class="panel-title">운영 개요</div>
+      <div class="panel-sub">최근 생성 결과와 실행 중인 작업, 산출물 수, 연결된 외부 커넥터 수를 종합해서 보여줍니다.</div>
+      <div class="stat-grid" id="overviewGrid">
+        <div class="empty">대시보드 데이터를 불러오는 중입니다...</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">보안 / 운영 설정</div>
+      <div class="panel-sub">업로드 제한, 관리자 토큰, 헤더 보호, OCR/런타임 상태를 점검합니다.</div>
+      <div class="token-wrap">
+        <div class="status-box info" id="authInfoBox">대시보드 인증 상태를 확인하는 중입니다...</div>
+        <div class="auth-grid">
+          <div class="auth-card" id="loginPanel">
+            <div class="auth-kicker">관리자 로그인</div>
+            <div class="auth-help" id="authSummaryText">운영자 세션 로그인을 사용하면 브라우저 단위로 대시보드를 제어할 수 있습니다.</div>
+            <div class="token-row">
+              <input type="text" id="loginUserInput" class="input" placeholder="관리자 계정">
+              <input type="password" id="loginPasswordInput" class="input" placeholder="관리자 비밀번호">
+            </div>
+            <div class="token-row">
+              <button type="button" class="btn primary" id="loginBtn">로그인</button>
+              <button type="button" class="btn ghost hidden" id="logoutBtn">로그아웃</button>
+            </div>
+          </div>
+          <div class="auth-card" id="tokenPanel">
+            <div class="auth-kicker">API / 자동화 토큰</div>
+            <div class="auth-help">외부 스크립트나 자동화 워커가 대시보드 API를 호출할 때는 헤더 토큰을 저장해 둘 수 있습니다.</div>
+            <div class="token-row">
+              <input type="password" id="tokenInput" class="input" placeholder="대시보드 관리자 토큰 (선택)">
+              <button type="button" class="btn" id="saveTokenBtn">토큰 저장</button>
+              <button type="button" class="btn ghost" id="clearTokenBtn">토큰 지우기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="status-box" id="authStatusBox"></div>
+      <div class="security-list section" id="securityList">
+        <div class="empty">보안 상태를 불러오는 중입니다...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section hidden" id="dashboardLockedSection">
+    <div class="panel">
+      <div class="panel-title">접근 보호</div>
+      <div class="empty" id="lockedMessage">관리자 로그인 또는 저장된 관리자 토큰으로 인증하면 운영 지표, 실행 중 Job, 외부 커넥터 목록을 볼 수 있습니다.</div>
+    </div>
+  </div>
+
+  <div class="section" id="monitoringSection">
+    <div class="section-head">
+      <div>
+        <div class="section-title">작업 모니터링</div>
+        <div class="section-sub">현재 분석 중인 job과 최근 생성된 강의안/시험지 결과를 함께 봅니다.</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">실행 중 / 최근 분석 작업</div>
+        <div class="job-list" id="jobList">
+          <div class="empty">분석 작업을 불러오는 중입니다...</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">최근 생성 결과물</div>
+        <div class="job-list" id="outputList">
+          <div class="empty">결과물을 불러오는 중입니다...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="connectorsSection">
+    <div class="section-head">
+      <div>
+        <div class="section-title">외부 프로그램 / 에이전트 연결</div>
+        <div class="section-sub">Webhook, 외부 Agent API, 자동화 서버를 연결해 Teach-On과 함께 쓸 수 있도록 확장합니다.</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">커넥터 목록</div>
+        <div class="connector-list" id="connectorList">
+          <div class="empty">등록된 커넥터가 없습니다. 오른쪽 폼에서 새 커넥터를 추가해 보세요.</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">커넥터 등록 / 수정</div>
+        <div class="panel-sub">다른 AI 에이전트 서버, n8n, Make, 사내 API, 자동화 워커를 등록할 수 있습니다. 우선 v1은 HTTP 기반 연동에 집중합니다.</div>
+        <div class="form-grid">
+          <div class="field full">
+            <label class="section-sub">커넥터 ID</label>
+            <input type="text" id="connectorId" class="input" placeholder="비워두면 이름으로 생성됩니다.">
+          </div>
+          <div class="field">
+            <label class="section-sub">이름</label>
+            <input type="text" id="connectorName" class="input" placeholder="예: 사내 Agent Gateway">
+          </div>
+          <div class="field">
+            <label class="section-sub">타입</label>
+            <select id="connectorType" class="select">
+              <option value="webhook">Webhook</option>
+              <option value="agent_api">Agent API</option>
+              <option value="automation">Automation</option>
+              <option value="mcp_bridge">MCP Bridge</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label class="section-sub">Base URL</label>
+            <input type="url" id="connectorBaseUrl" class="input" placeholder="https://example.com">
+          </div>
+          <div class="field">
+            <label class="section-sub">Health URL</label>
+            <input type="url" id="connectorHealthUrl" class="input" placeholder="https://example.com/health">
+          </div>
+          <div class="field">
+            <label class="section-sub">Trigger URL</label>
+            <input type="url" id="connectorTriggerUrl" class="input" placeholder="https://example.com/run">
+          </div>
+          <div class="field">
+            <label class="section-sub">인증 방식</label>
+            <select id="connectorAuthType" class="select">
+              <option value="none">없음</option>
+              <option value="bearer_env">Bearer (env)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="section-sub">API Key ENV</label>
+            <input type="text" id="connectorApiKeyEnv" class="input" placeholder="예: AGENT_GATEWAY_TOKEN">
+          </div>
+          <div class="field full">
+            <label class="section-sub">Capabilities (쉼표 구분)</label>
+            <input type="text" id="connectorCapabilities" class="input" placeholder="draft_review, asset_enrichment, webhook_trigger">
+          </div>
+          <div class="field full">
+            <label class="section-sub">설명</label>
+            <textarea id="connectorDescription" class="textarea" placeholder="어떤 시스템과 연결되는지 적어두면 운영 관리가 쉬워집니다."></textarea>
+          </div>
+          <div class="field full">
+            <label class="section-sub">샘플 Invoke 페이로드</label>
+            <textarea id="connectorPayload" class="textarea" placeholder='{"event":"teachon.ping","source":"dashboard"}'></textarea>
+          </div>
+        </div>
+        <div class="job-actions">
+          <button type="button" class="btn primary" id="saveConnectorBtn">커넥터 저장</button>
+          <button type="button" class="btn" id="resetConnectorBtn">폼 초기화</button>
+        </div>
+        <div class="status-box" id="connectorStatus"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const AUTH_REQUIRED = '{{ "true" if dashboard_auth_enabled else "false" }}' === 'true';
+const TOKEN_KEY = 'teachon_dashboard_token';
+let authState = {
+  auth_enabled: AUTH_REQUIRED,
+  session_authenticated: false,
+  token_authenticated: false,
+  token_enabled: false,
+  password_enabled: false,
+  username: '',
+};
+
+function $(id){return document.getElementById(id);}
+function esc(value){return String(value||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function tokenValue(){return localStorage.getItem(TOKEN_KEY)||'';}
+function setToken(value){if(value) localStorage.setItem(TOKEN_KEY, value); else localStorage.removeItem(TOKEN_KEY);}
+function canAccessDashboard(){return !authState.auth_enabled || authState.session_authenticated || authState.token_authenticated;}
+function setBoxState(id, kind, message){
+  const box = $(id);
+  box.className = `status-box ${kind}`;
+  box.textContent = message;
+}
+
+async function readApiPayload(response, fallback) {
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const rawText = await response.text();
+  if (contentType.includes('application/json')) {
+    try { return JSON.parse(rawText); }
+    catch (_) {
+      return { error: `${fallback} 응답을 JSON으로 해석하지 못했습니다.` };
+    }
+  }
+  const compact = rawText.replace(/\s+/g,' ').trim().slice(0,200);
+  return { error: `${fallback} 중 예상하지 못한 응답을 받았습니다. ${compact}` };
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const token = tokenValue();
+  if (token) headers['X-TeachOn-Token'] = token;
+  const response = await fetch(path, { ...options, headers, cache: 'no-store' });
+  const data = await readApiPayload(response, '대시보드 요청');
+  if (!response.ok || data.error) {
+    const error = new Error(data.error || `요청 실패 (${response.status})`);
+    error.code = data.code || '';
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function resetProtectedPanels(message) {
+  const text = message || '관리자 로그인 후 운영 데이터를 볼 수 있습니다.';
+  $('overviewGrid').innerHTML = `<div class="empty">${esc(text)}</div>`;
+  $('jobList').innerHTML = `<div class="empty">${esc(text)}</div>`;
+  $('outputList').innerHTML = `<div class="empty">${esc(text)}</div>`;
+  $('connectorList').innerHTML = `<div class="empty">${esc(text)}</div>`;
+}
+
+function setDashboardLocked(locked, message) {
+  $('dashboardLockedSection').classList.toggle('hidden', !locked);
+  $('monitoringSection').classList.toggle('hidden', locked);
+  $('connectorsSection').classList.toggle('hidden', locked);
+  $('refreshBtn').disabled = locked;
+  if (locked) {
+    $('lockedMessage').textContent = message || '관리자 로그인 또는 저장된 관리자 토큰으로 인증하면 운영 지표, 실행 중 Job, 외부 커넥터 목록을 볼 수 있습니다.';
+    resetProtectedPanels(message);
+  }
+}
+
+function updateAuthUi() {
+  const token = tokenValue();
+  $('tokenInput').value = token;
+  $('loginUserInput').value = authState.username || '';
+  $('logoutBtn').classList.toggle('hidden', !authState.session_authenticated);
+  $('loginBtn').disabled = !!authState.session_authenticated || !authState.password_enabled;
+  $('loginUserInput').disabled = !!authState.session_authenticated || !authState.password_enabled;
+  $('loginPasswordInput').disabled = !!authState.session_authenticated || !authState.password_enabled;
+  $('tokenPanel').classList.toggle('hidden', !authState.token_enabled);
+  $('loginPanel').classList.toggle('hidden', !authState.password_enabled);
+
+  if (!authState.auth_enabled) {
+    setBoxState('authInfoBox', 'ok', '대시보드 인증이 비활성화되어 있습니다. 운영 환경에서는 관리자 로그인과 토큰을 함께 설정하는 것을 권장합니다.');
+    $('authSummaryText').textContent = '현재는 누구나 대시보드에 접근할 수 있습니다. 운영 배포 전에는 관리자 비밀번호와 IP 허용 목록을 꼭 설정해 주세요.';
+  } else if (authState.session_authenticated) {
+    setBoxState('authInfoBox', 'ok', `세션 로그인 완료 · ${authState.username || 'admin'} 계정으로 대시보드에 접근 중입니다.`);
+    $('authSummaryText').textContent = '브라우저 세션 인증이 활성화되어 있습니다. 필요할 때 로그아웃하거나, 자동화 연동에는 별도의 토큰을 사용할 수 있습니다.';
+  } else if (authState.token_authenticated) {
+    setBoxState('authInfoBox', 'ok', '저장된 관리자 토큰으로 대시보드 API 접근이 인증되었습니다.');
+    $('authSummaryText').textContent = '현재는 헤더 토큰으로 접근 중입니다. 운영자 세션 로그인 없이도 자동화/API 제어를 수행할 수 있습니다.';
+  } else {
+    setBoxState('authInfoBox', 'info', '관리자 로그인 또는 저장된 관리자 토큰이 필요합니다. 인증 전에는 운영 데이터와 커넥터 제어가 잠깁니다.');
+    $('authSummaryText').textContent = authState.password_enabled
+      ? '운영자 계정으로 로그인하면 세션 기반으로 대시보드를 사용할 수 있습니다.'
+      : '이 서버는 세션 로그인 대신 관리자 토큰 기반 접근을 사용합니다.';
+  }
+
+  if (canAccessDashboard()) {
+    setDashboardLocked(false);
+  } else if (authState.auth_enabled) {
+    setDashboardLocked(true, '운영 지표와 커넥터 제어는 인증 후에만 열립니다. 관리자 로그인 또는 저장된 토큰을 사용해 주세요.');
+  } else {
+    setDashboardLocked(false);
+  }
+}
+
+async function loadAuthStatus() {
+  const headers = {};
+  const token = tokenValue();
+  if (token) headers['X-TeachOn-Token'] = token;
+  const response = await fetch('/api/dashboard/auth/status', { headers, cache: 'no-store' });
+  const data = await readApiPayload(response, '대시보드 인증 상태');
+  if (!response.ok || data.error) {
+    throw new Error(data.error || `인증 상태 확인 실패 (${response.status})`);
+  }
+  authState = {
+    auth_enabled: !!data.auth_enabled,
+    session_authenticated: !!data.session_authenticated,
+    token_authenticated: !!data.token_authenticated,
+    token_enabled: !!data.token_enabled,
+    password_enabled: !!data.password_enabled,
+    username: data.username || '',
+  };
+  updateAuthUi();
+  return authState;
+}
+
+function statusBadge(status) {
+  const normalized = String(status || '').toLowerCase();
+  const cls = normalized === 'completed' ? 'ok'
+    : normalized === 'failed' ? 'err'
+    : normalized === 'revise' ? 'warn'
+    : '';
+  return `<span class="badge ${cls}">${esc(normalized || 'unknown')}</span>`;
+}
+
+function renderOverview(data) {
+  const cards = [
+    ['생성 결과물', data.generated_outputs || 0],
+    ['실행 중 Job', data.active_jobs || 0],
+    ['PPT 산출물', data.ppt_count || 0],
+    ['문제지 Word', data.exam_docx_count || 0],
+    ['평균 슬라이드 수', data.average_slides || 0],
+    ['평균 문제 수', data.average_questions || 0],
+    ['연결된 커넥터', `${data.connectors_enabled || 0}/${data.connectors_total || 0}`],
+    ['업로드 제한', `${data.security?.upload_limit_mb || 0}MB`],
+  ];
+  $('overviewGrid').innerHTML = cards.map(card => `
+    <div class="stat">
+      <div class="stat-value">${esc(card[1])}</div>
+      <div class="stat-label">${esc(card[0])}</div>
+    </div>
+  `).join('');
+}
+
+function renderSecurity(data) {
+  const findings = data.findings || [];
+  $('securityList').innerHTML = findings.length ? findings.map(item => `
+    <div class="finding">
+      <div class="finding-dot ${esc(item.level || 'ok')}"></div>
+      <div>
+        <div class="finding-title">${esc(item.title || '')}</div>
+        <div class="finding-msg">${esc(item.message || '')}</div>
+      </div>
+    </div>
+  `).join('') : '<div class="empty">보안 점검 항목이 없습니다.</div>';
+}
+
+function renderJobTrace(agents) {
+  const rows = Array.isArray(agents) ? agents : [];
+  if (!rows.length) return '<div class="muted">에이전트 상태 정보가 없습니다.</div>';
+  return `<div class="job-agents">${rows.map(agent => `
+    <div class="agent-chip ${esc(agent.status || 'queued')}">
+      <div class="name">${esc(agent.label || agent.key || 'agent')}</div>
+      <div class="status">${esc(agent.status || 'queued')} · ${esc(agent.message || '')}</div>
+    </div>
+  `).join('')}</div>`;
+}
+
+function renderJobs(data) {
+  const jobs = data.analyze_jobs || [];
+  const outputs = data.recent_outputs || [];
+
+  $('jobList').innerHTML = jobs.length ? jobs.map(job => `
+    <div class="job-card">
+      <div class="job-top">
+        <div>
+          <div class="job-name">분석 Job ${esc(job.job_id)}</div>
+          <div class="job-meta">${esc(job.stage || 'stage 없음')} · ${esc(job.updated_at || '')}</div>
+        </div>
+        ${statusBadge(job.status)}
+      </div>
+      <div class="job-meta" style="margin-top:10px">${esc(job.message || '')}</div>
+      ${renderJobTrace(job.agents)}
+    </div>
+  `).join('') : '<div class="empty">현재 보이는 분석 작업이 없습니다.</div>';
+
+  $('outputList').innerHTML = outputs.length ? outputs.map(item => {
+    const examEnabled = item.questions_enabled !== false;
+    return `
+      <div class="job-card">
+        <div class="job-top">
+          <div>
+            <div class="job-name">${esc(item.pdf_name || item.download_name || item.uid)}</div>
+            <div class="job-meta">${esc(item.updated_at || '')} · ${esc(item.slide_count || 0)}장 · ${esc(item.question_count || 0)}문항</div>
+          </div>
+          <span class="badge ok">${esc(item.preset || 'preset')}</span>
+        </div>
+        <div class="badges">
+          <span class="badge">${esc(item.lecture_goal || 'standard')}</span>
+          <span class="badge ${examEnabled ? 'ok' : 'warn'}">${examEnabled ? '시험지 ON' : '시험지 OFF'}</span>
+          ${(item.artifacts || []).map(kind => `<span class="badge">${esc(kind)}</span>`).join('')}
+        </div>
+        <div class="output-links">
+          <a class="mini-link" href="/preview/${encodeURIComponent(item.uid)}" target="_blank">미리보기</a>
+          <a class="mini-link" href="/download/${encodeURIComponent(item.uid)}" target="_blank">PPT</a>
+          ${(item.artifacts || []).includes('exam') ? `<a class="mini-link" href="/download/${encodeURIComponent(item.uid)}/exam" target="_blank">문제지</a>` : ''}
+          ${(item.artifacts || []).includes('answer') ? `<a class="mini-link" href="/download/${encodeURIComponent(item.uid)}/answer" target="_blank">정답지</a>` : ''}
+          ${(item.artifacts || []).includes('exam_a') ? `<a class="mini-link" href="/download/${encodeURIComponent(item.uid)}/exam_a" target="_blank">A형</a>` : ''}
+          ${(item.artifacts || []).includes('exam_b') ? `<a class="mini-link" href="/download/${encodeURIComponent(item.uid)}/exam_b" target="_blank">B형</a>` : ''}
+        </div>
+        ${renderJobTrace(item.agent_trace)}
+      </div>
+    `;
+  }).join('') : '<div class="empty">아직 저장된 결과물이 없습니다.</div>';
+}
+
+function connectorFormData() {
+  const rawCapabilities = $('connectorCapabilities').value.trim();
+  return {
+    id: $('connectorId').value.trim(),
+    name: $('connectorName').value.trim(),
+    type: $('connectorType').value,
+    base_url: $('connectorBaseUrl').value.trim(),
+    health_url: $('connectorHealthUrl').value.trim(),
+    trigger_url: $('connectorTriggerUrl').value.trim(),
+    auth_type: $('connectorAuthType').value,
+    api_key_env: $('connectorApiKeyEnv').value.trim(),
+    capabilities: rawCapabilities ? rawCapabilities.split(',').map(item => item.trim()).filter(Boolean) : [],
+    description: $('connectorDescription').value.trim(),
+    enabled: true,
+  };
+}
+
+function fillConnectorForm(connector) {
+  $('connectorId').value = connector.id || '';
+  $('connectorName').value = connector.name || '';
+  $('connectorType').value = connector.type || 'webhook';
+  $('connectorBaseUrl').value = connector.base_url || '';
+  $('connectorHealthUrl').value = connector.health_url || '';
+  $('connectorTriggerUrl').value = connector.trigger_url || '';
+  $('connectorAuthType').value = connector.auth_type || 'none';
+  $('connectorApiKeyEnv').value = connector.api_key_env || '';
+  $('connectorCapabilities').value = Array.isArray(connector.capabilities) ? connector.capabilities.join(', ') : '';
+  $('connectorDescription').value = connector.description || '';
+}
+
+function resetConnectorForm() {
+  fillConnectorForm({});
+  $('connectorPayload').value = '{"event":"teachon.ping","source":"dashboard"}';
+}
+
+function setConnectorStatus(kind, message) {
+  const box = $('connectorStatus');
+  box.className = `status-box ${kind}`;
+  box.textContent = message;
+}
+
+function renderConnectors(data) {
+  const connectors = data.connectors || [];
+  $('connectorList').innerHTML = connectors.length ? connectors.map(connector => `
+    <div class="connector-card">
+      <div class="connector-top">
+        <div>
+          <div class="connector-name">${esc(connector.name || connector.id)}</div>
+          <div class="connector-meta">${esc(connector.type || 'webhook')} · ${esc(connector.base_url || '')}</div>
+        </div>
+        ${statusBadge(connector.last_health?.ok ? 'completed' : (connector.last_health ? 'failed' : 'queued'))}
+      </div>
+      ${connector.description ? `<div class="connector-meta" style="margin-top:10px">${esc(connector.description)}</div>` : ''}
+      <div class="badges">
+        ${(connector.capabilities || []).map(item => `<span class="badge">${esc(item)}</span>`).join('') || '<span class="badge">capability 없음</span>'}
+      </div>
+      <div class="connector-meta" style="margin-top:10px">
+        ${connector.last_checked_at ? `최근 점검: ${esc(connector.last_checked_at)}` : '아직 점검 기록 없음'}
+        ${connector.last_invoked_at ? ` · 최근 호출: ${esc(connector.last_invoked_at)}` : ''}
+      </div>
+      <div class="connector-actions">
+        <button type="button" class="btn" data-action="edit" data-id="${esc(connector.id)}">수정</button>
+        <button type="button" class="btn" data-action="test" data-id="${esc(connector.id)}">연결 점검</button>
+        <button type="button" class="btn primary" data-action="invoke" data-id="${esc(connector.id)}">샘플 호출</button>
+      </div>
+    </div>
+  `).join('') : '<div class="empty">등록된 커넥터가 없습니다. 오른쪽 폼으로 새 연결을 추가해 보세요.</div>';
+
+  document.querySelectorAll('[data-action="edit"]').forEach(button => {
+    button.addEventListener('click', () => {
+      const connector = connectors.find(item => item.id === button.dataset.id);
+      if (connector) fillConnectorForm(connector);
+    });
+  });
+  document.querySelectorAll('[data-action="test"]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        setConnectorStatus('info', '커넥터 연결을 점검하고 있습니다...');
+        const result = await apiFetch(`/api/dashboard/connectors/${encodeURIComponent(button.dataset.id)}/test`, { method: 'POST' });
+        setConnectorStatus('ok', `연결 성공 · HTTP ${result.status_code || 200}${result.response_preview ? ` · ${result.response_preview}` : ''}`);
+        await loadConnectors();
+      } catch (error) {
+        setConnectorStatus('err', error.message);
+      }
+    });
+  });
+  document.querySelectorAll('[data-action="invoke"]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        setConnectorStatus('info', '샘플 페이로드를 전송하고 있습니다...');
+        const raw = $('connectorPayload').value.trim();
+        let payload = {};
+        if (raw) payload = JSON.parse(raw);
+        const result = await apiFetch(`/api/dashboard/connectors/${encodeURIComponent(button.dataset.id)}/invoke`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload }),
+        });
+        setConnectorStatus('ok', `호출 성공 · HTTP ${result.status_code || 200}${result.response_preview ? ` · ${result.response_preview}` : ''}`);
+        await loadConnectors();
+      } catch (error) {
+        setConnectorStatus('err', error.message);
+      }
+    });
+  });
+}
+
+async function loadOverview() {
+  const [overview, security, jobs] = await Promise.all([
+    apiFetch('/api/dashboard/overview'),
+    apiFetch('/api/dashboard/security'),
+    apiFetch('/api/dashboard/jobs'),
+  ]);
+  renderOverview(overview);
+  renderSecurity(security);
+  renderJobs(jobs);
+}
+
+async function loadConnectors() {
+  const data = await apiFetch('/api/dashboard/connectors');
+  renderConnectors(data);
+}
+
+async function refreshAll() {
+  try {
+    await loadAuthStatus();
+    if (!canAccessDashboard()) return;
+    await Promise.all([loadOverview(), loadConnectors()]);
+  } catch (error) {
+    setConnectorStatus('err', error.message);
+  }
+}
+
+$('loginBtn').addEventListener('click', async () => {
+  try {
+    const username = $('loginUserInput').value.trim();
+    const password = $('loginPasswordInput').value;
+    if (!username) throw new Error('관리자 계정을 입력해 주세요.');
+    if (!password) throw new Error('관리자 비밀번호를 입력해 주세요.');
+    setBoxState('authStatusBox', 'info', '관리자 세션 로그인을 시도하고 있습니다...');
+    await apiFetch('/api/dashboard/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    $('loginPasswordInput').value = '';
+    await refreshAll();
+    setBoxState('authStatusBox', 'ok', '관리자 로그인이 완료되었습니다.');
+  } catch (error) {
+    setBoxState('authStatusBox', 'err', error.message);
+  }
+});
+
+$('logoutBtn').addEventListener('click', async () => {
+  try {
+    setBoxState('authStatusBox', 'info', '로그아웃 중입니다...');
+    await apiFetch('/api/dashboard/auth/logout', { method: 'POST' });
+    await refreshAll();
+    setBoxState('authStatusBox', 'ok', '로그아웃했습니다.');
+  } catch (error) {
+    setBoxState('authStatusBox', 'err', error.message);
+  }
+});
+
+$('saveTokenBtn').addEventListener('click', () => {
+  setToken($('tokenInput').value.trim());
+  setBoxState('authStatusBox', 'ok', tokenValue() ? '대시보드 토큰을 저장했습니다.' : '토큰이 비어 있어 저장하지 않았습니다.');
+  refreshAll();
+});
+
+$('clearTokenBtn').addEventListener('click', () => {
+  setToken('');
+  $('tokenInput').value = '';
+  setBoxState('authStatusBox', 'info', '저장된 대시보드 토큰을 지웠습니다.');
+  refreshAll();
+});
+
+$('saveConnectorBtn').addEventListener('click', async () => {
+  try {
+    const body = connectorFormData();
+    if (!body.name) throw new Error('커넥터 이름을 입력해 주세요.');
+    if (!body.base_url) throw new Error('Base URL을 입력해 주세요.');
+    setConnectorStatus('info', '커넥터를 저장하고 있습니다...');
+    await apiFetch('/api/dashboard/connectors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    setConnectorStatus('ok', '커넥터를 저장했습니다.');
+    await loadConnectors();
+    resetConnectorForm();
+  } catch (error) {
+    setConnectorStatus('err', error.message);
+  }
+});
+
+$('resetConnectorBtn').addEventListener('click', resetConnectorForm);
+$('refreshBtn').addEventListener('click', refreshAll);
+$('loginPasswordInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    $('loginBtn').click();
+  }
+});
+
+function init() {
+  resetConnectorForm();
+  resetProtectedPanels('관리자 로그인 후 운영 데이터를 볼 수 있습니다.');
+  refreshAll();
+}
+
+init();
+</script>
+</body>
+</html>

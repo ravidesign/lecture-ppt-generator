@@ -2,7 +2,8 @@ import json
 import os
 from datetime import datetime
 
-HISTORY_FILE = "history.json"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
 
 
 def _load() -> list:
@@ -16,8 +17,10 @@ def _load() -> list:
 
 
 def _save(data: list):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+    temp_path = f"{HISTORY_FILE}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(temp_path, HISTORY_FILE)
 
 
 def add_record(pdf_name: str, uid: str, slide_count: int, theme: str):

@@ -13,6 +13,7 @@ import traceback
 import uuid
 from copy import deepcopy
 from datetime import datetime
+from urllib.parse import quote
 
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -20,7 +21,7 @@ os.environ.setdefault("LANG", "C.UTF-8")
 os.environ.setdefault("LC_ALL", "C.UTF-8")
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, jsonify, render_template, request, send_file, session
 import fitz  # PyMuPDF
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
@@ -28,6 +29,17 @@ load_dotenv()
 
 import config
 from core.claude_analyzer import analyze_pdf
+from core.dashboard_service import (
+    dashboard_job_detail,
+    dashboard_jobs,
+    dashboard_overview,
+    get_connector,
+    invoke_connector,
+    load_connectors,
+    security_summary,
+    test_connector,
+    upsert_connector,
+)
 from core.history import add_record, get_history
 from core.pdf_parser import (
     build_page_plan_preview,
@@ -41,14 +53,29 @@ from core.ppt_generator import (
     SUPPORTED_FONTS,
     generate_pptx_bytes,
 )
+from core.security import (
+    check_rate_limit,
+    dashboard_allowlist_networks,
+    is_ip_allowed,
+    rate_limit_bucket_for_request,
+    rate_limit_settings,
+    resolve_client_ip,
+    verify_admin_credentials,
+)
 from core.slide_quality import build_outline, build_quality_summary, review_slides
 from core.slide_enricher import attach_pdf_images_to_slides
 from core.slide_variants import generate_slide_variants
 from flows import build_initial_agent_trace, run_full_pipeline
 from tools.docx_tool import save_exam_artifacts
 from tools.slide_tool import build_exam_summary
+from tools.theme_tool import list_theme_specs
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_MB * 1024 * 1024
+app.secret_key = config.SESSION_SECRET
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes", "on"}
 # Keep API JSON ASCII-safe so Render/gunicorn never has to emit raw Unicode
 # while streaming large Korean slide payloads back to the browser.
 app.config["JSON_AS_ASCII"] = True
@@ -162,6 +189,73 @@ def _json_response(payload: dict | list, status: int = 200):
     )
 
 
+def _is_valid_pdf_file(file_storage) -> bool:
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return False
+    try:
+        stream = file_storage.stream
+        pos = stream.tell()
+        head = stream.read(5)
+        stream.seek(pos)
+    except Exception:
+        return False
+    return head == b"%PDF-"
+
+
+def _is_valid_image_file(file_storage) -> bool:
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return False
+    try:
+        stream = file_storage.stream
+        pos = stream.tell()
+        image = Image.open(stream)
+        image.verify()
+        stream.seek(pos)
+        return True
+    except Exception:
+        try:
+            stream.seek(pos)
+        except Exception:
+            pass
+        return False
+
+
+def _dashboard_auth_enabled() -> bool:
+    return bool(config.ADMIN_TOKEN or config.ADMIN_PASSWORD or config.ADMIN_PASSWORD_HASH)
+
+
+def _dashboard_session_authenticated() -> bool:
+    return bool(session.get("teachon_admin_authenticated"))
+
+
+def _dashboard_auth_state() -> dict:
+    return {
+        "auth_enabled": _dashboard_auth_enabled(),
+        "session_authenticated": _dashboard_session_authenticated(),
+        "token_authenticated": _dashboard_token_ok(),
+        "username": session.get("teachon_admin_username", ""),
+    }
+
+
+def _dashboard_token_ok() -> bool:
+    if not bool(config.ADMIN_TOKEN):
+        return False
+    token = request.headers.get("X-TeachOn-Token", "").strip()
+    return bool(token) and token == config.ADMIN_TOKEN
+
+
+def _dashboard_guard(mutate: bool = False):
+    if _dashboard_token_ok() or _dashboard_session_authenticated() or not _dashboard_auth_enabled():
+        return None
+    return _json_response(
+        {
+            "error": "대시보드 로그인 또는 관리자 토큰이 필요합니다.",
+            "code": "dashboard_auth_required",
+        },
+        status=401,
+    )
+
+
 def _record_exception(stage: str, exc: Exception) -> str:
     _ensure_utf8_runtime()
     error_id = uuid.uuid4().hex[:8]
@@ -194,12 +288,87 @@ def _refresh_runtime_encoding():
     _ensure_utf8_runtime()
 
 
+@app.before_request
+def _apply_security_controls():
+    path = request.path or "/"
+    client_ip = resolve_client_ip(request)
+    request.environ["teachon.client_ip"] = client_ip
+
+    if path.startswith("/dashboard") or path.startswith("/api/dashboard"):
+        allowlist = dashboard_allowlist_networks()
+        if allowlist and not is_ip_allowed(client_ip, allowlist):
+            if path.startswith("/api/"):
+                return _json_response(
+                    {
+                        "error": "이 IP는 대시보드 접근이 허용되지 않습니다.",
+                        "code": "dashboard_ip_forbidden",
+                    },
+                    status=403,
+                )
+            return app.response_class(
+                response="Dashboard access is not allowed from this IP address.",
+                status=403,
+                mimetype="text/plain",
+            )
+
+    bucket = rate_limit_bucket_for_request(path, request.method)
+    allowed, retry_after, bucket_config = check_rate_limit(client_ip, bucket)
+    if allowed:
+        return None
+
+    if path.startswith("/api/"):
+        response = _json_response(
+            {
+                "error": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+                "code": "rate_limited",
+                "bucket": bucket,
+                "retry_after": retry_after,
+            },
+            status=429,
+        )
+    else:
+        response = app.response_class(
+            response="Too many requests. Please try again shortly.",
+            status=429,
+            mimetype="text/plain",
+        )
+    response.headers["Retry-After"] = str(retry_after)
+    response.headers["X-RateLimit-Bucket"] = bucket
+    response.headers["X-RateLimit-Limit"] = str(bucket_config["limit"])
+    response.headers["X-RateLimit-Window"] = str(bucket_config["window"])
+    return response
+
+
 @app.after_request
 def _disable_response_caching(response):
     response.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'self'; "
+        "form-action 'self'"
+    )
     return response
+
+
+@app.errorhandler(413)
+def _request_too_large(_exc):
+    return _json_response(
+        {
+            "error": f"업로드 크기가 너무 큽니다. 최대 {config.MAX_UPLOAD_MB}MB까지 업로드할 수 있습니다.",
+        },
+        status=413,
+    )
 
 
 def _resolve_preset_id(preset_id: str) -> str:
@@ -703,6 +872,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html", dashboard_auth_enabled=_dashboard_auth_enabled())
+
+
 @app.route("/preview/<uid>")
 def preview(uid):
     return render_template("preview.html", uid=uid)
@@ -716,6 +890,8 @@ def api_analyze():
     file = request.files["file"]
     if not file.filename.lower().endswith(".pdf"):
         return jsonify({"error": "PDF 파일만 지원합니다"}), 400
+    if not _is_valid_pdf_file(file):
+        return jsonify({"error": "올바른 PDF 파일이 아닙니다"}), 400
 
     auto_slide_count = _is_truthy(request.form.get("auto_slide_count"))
     enhance_scans = _is_truthy(request.form.get("enhance_scans"))
@@ -765,6 +941,8 @@ def api_analyze_start():
     file = request.files["file"]
     if not file.filename.lower().endswith(".pdf"):
         return _json_response({"error": "PDF 파일만 지원합니다"}, status=400)
+    if not _is_valid_pdf_file(file):
+        return _json_response({"error": "올바른 PDF 파일이 아닙니다"}, status=400)
 
     auto_slide_count = _is_truthy(request.form.get("auto_slide_count"))
     enhance_scans = _is_truthy(request.form.get("enhance_scans"))
@@ -846,6 +1024,8 @@ def api_page_plan_preview():
     file = request.files["file"]
     if not file.filename.lower().endswith(".pdf"):
         return _json_response({"error": "PDF 파일만 지원합니다"}, status=400)
+    if not _is_valid_pdf_file(file):
+        return _json_response({"error": "올바른 PDF 파일이 아닙니다"}, status=400)
 
     page_range = request.form.get("page_range", "").strip()
     uid = uuid.uuid4().hex[:8]
@@ -877,25 +1057,7 @@ def api_page_plan_preview():
 
 @app.route("/api/presets")
 def api_presets():
-    result = []
-    for preset_id, preset in PRESETS.items():
-        colors = preset["colors"]
-        result.append(
-            {
-                "id": preset_id,
-                "name": preset["name"],
-                "desc": preset["desc"],
-                "swatch": {
-                    "header": "#{:02X}{:02X}{:02X}".format(*colors["header"]),
-                    "accent": "#{:02X}{:02X}{:02X}".format(*colors["accent"]),
-                    "bg": "#{:02X}{:02X}{:02X}".format(*colors["bg"]),
-                },
-                "header_style": preset["header_style"],
-                "bullet_style": preset["bullet_style"],
-                "density": preset["density"],
-            }
-        )
-    return jsonify(result)
+    return jsonify(list_theme_specs())
 
 
 @app.route("/api/fonts")
@@ -923,6 +1085,8 @@ def api_upload_logo():
     ext = file.filename.rsplit(".", 1)[-1].lower()
     if ext not in {"png", "jpg", "jpeg", "gif", "webp"}:
         return jsonify({"error": "이미지 파일만 지원"}), 400
+    if not _is_valid_image_file(file):
+        return jsonify({"error": "손상되었거나 지원하지 않는 이미지입니다"}), 400
 
     uid = uuid.uuid4().hex[:8]
     logo_path = os.path.join(UPLOAD_DIR, f"logo_{uid}.{ext}")
@@ -1301,6 +1465,142 @@ def api_apply_slide_variant(uid, slide_index):
     except Exception as exc:
         error_id = _record_exception("api_apply_slide_variant", exc)
         return jsonify({"error": _safe_error_text(exc), "error_id": error_id}), 500
+
+
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    return _json_response(
+        {
+            "ok": True,
+            "service": "Teach-On",
+            "time": datetime.utcnow().isoformat() + "Z",
+            "ocr_available": OCR_AVAILABLE,
+            "max_upload_mb": config.MAX_UPLOAD_MB,
+            "dashboard_auth_enabled": _dashboard_auth_enabled(),
+        }
+    )
+
+
+@app.route("/api/dashboard/auth/status", methods=["GET"])
+def api_dashboard_auth_status():
+    return _json_response(
+        {
+            **_dashboard_auth_state(),
+            "token_enabled": bool(config.ADMIN_TOKEN),
+            "password_enabled": bool(config.ADMIN_PASSWORD or config.ADMIN_PASSWORD_HASH),
+        }
+    )
+
+
+@app.route("/api/dashboard/auth/login", methods=["POST"])
+def api_dashboard_auth_login():
+    if not _dashboard_auth_enabled():
+        session["teachon_admin_authenticated"] = True
+        session["teachon_admin_username"] = config.ADMIN_USERNAME
+        return _json_response({"ok": True, **_dashboard_auth_state()})
+
+    body = request.get_json(silent=True) or {}
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    if not verify_admin_credentials(username, password):
+        return _json_response(
+            {
+                "error": "관리자 계정 정보가 올바르지 않습니다.",
+                "code": "dashboard_login_failed",
+            },
+            status=401,
+        )
+
+    session["teachon_admin_authenticated"] = True
+    session["teachon_admin_username"] = username or config.ADMIN_USERNAME
+    session["teachon_admin_authenticated_at"] = datetime.utcnow().isoformat() + "Z"
+    return _json_response({"ok": True, **_dashboard_auth_state()})
+
+
+@app.route("/api/dashboard/auth/logout", methods=["POST"])
+def api_dashboard_auth_logout():
+    session.pop("teachon_admin_authenticated", None)
+    session.pop("teachon_admin_username", None)
+    session.pop("teachon_admin_authenticated_at", None)
+    return _json_response({"ok": True, **_dashboard_auth_state()})
+
+
+@app.route("/api/dashboard/overview", methods=["GET"])
+def api_dashboard_overview():
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    return _json_response(dashboard_overview())
+
+
+@app.route("/api/dashboard/jobs", methods=["GET"])
+def api_dashboard_jobs():
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    try:
+        output_limit = max(1, min(100, int(request.args.get("output_limit", 20) or 20)))
+        job_limit = max(1, min(100, int(request.args.get("job_limit", 20) or 20)))
+    except (TypeError, ValueError):
+        output_limit, job_limit = 20, 20
+    return _json_response(dashboard_jobs(output_limit, job_limit))
+
+
+@app.route("/api/dashboard/jobs/<job_or_uid>", methods=["GET"])
+def api_dashboard_job_detail(job_or_uid):
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    detail = dashboard_job_detail(job_or_uid)
+    if not detail:
+        return _json_response({"error": "작업을 찾을 수 없습니다."}, status=404)
+    return _json_response(detail)
+
+
+@app.route("/api/dashboard/security", methods=["GET"])
+def api_dashboard_security():
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    return _json_response(security_summary())
+
+
+@app.route("/api/dashboard/connectors", methods=["GET", "POST"])
+def api_dashboard_connectors():
+    guard = _dashboard_guard(mutate=request.method != "GET")
+    if guard:
+        return guard
+    if request.method == "GET":
+        return _json_response({"connectors": [_ for _ in map(dict, load_connectors())]})
+
+    body = request.get_json(silent=True) or {}
+    connector = upsert_connector(body)
+    return _json_response({"ok": True, "connector": connector})
+
+
+@app.route("/api/dashboard/connectors/<connector_id>/test", methods=["POST"])
+def api_dashboard_connector_test(connector_id):
+    guard = _dashboard_guard(mutate=True)
+    if guard:
+        return guard
+    result = test_connector(connector_id)
+    status = 200 if result.get("ok") else 400
+    return _json_response(result, status=status)
+
+
+@app.route("/api/dashboard/connectors/<connector_id>/invoke", methods=["POST"])
+def api_dashboard_connector_invoke(connector_id):
+    guard = _dashboard_guard(mutate=True)
+    if guard:
+        return guard
+    connector = get_connector(connector_id)
+    if not connector:
+        return _json_response({"error": "커넥터를 찾을 수 없습니다."}, status=404)
+    body = request.get_json(silent=True) or {}
+    payload = body.get("payload") if isinstance(body.get("payload"), dict) else body
+    result = invoke_connector(connector_id, payload=payload)
+    status = 200 if result.get("ok") else 400
+    return _json_response(result, status=status)
 
 
 @app.route("/api/history", methods=["GET"])
