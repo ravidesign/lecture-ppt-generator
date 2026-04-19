@@ -13,7 +13,7 @@ import traceback
 import uuid
 from copy import deepcopy
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote
 
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -28,6 +28,14 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 load_dotenv()
 
 import config
+from core.agent_control import (
+    available_agents,
+    create_agent_task,
+    get_agent_task,
+    list_agent_tasks,
+    run_agent_task,
+    run_agent_task_async,
+)
 from core.claude_analyzer import analyze_pdf
 from core.dashboard_service import (
     dashboard_job_detail,
@@ -65,6 +73,16 @@ from core.security import (
 from core.slide_quality import build_outline, build_quality_summary, review_slides
 from core.slide_enricher import attach_pdf_images_to_slides
 from core.slide_variants import generate_slide_variants
+from core.slack_service import (
+    format_share_message,
+    help_text as slack_help_text,
+    post_message as slack_post_message,
+    post_response_url as slack_post_response_url,
+    record_slack_activity,
+    slack_status,
+    strip_bot_mention,
+    verify_request as verify_slack_request,
+)
 from flows import build_initial_agent_trace, run_full_pipeline
 from tools.docx_tool import save_exam_artifacts
 from tools.slide_tool import build_exam_summary
@@ -278,6 +296,159 @@ def _record_exception(stage: str, exc: Exception) -> str:
             pass
 
     return error_id
+
+
+def _slack_json_response(payload: dict, status: int = 200):
+    return app.response_class(
+        response=json.dumps(payload, ensure_ascii=False),
+        status=status,
+        mimetype="application/json",
+    )
+
+
+def _summarize_jobs_for_slack() -> str:
+    snapshot = dashboard_jobs(limit_outputs=5, limit_active=5)
+    parts: list[str] = []
+    active_jobs = snapshot.get("analyze_jobs") or []
+    recent_outputs = snapshot.get("recent_outputs") or []
+    if active_jobs:
+        parts.append("실행 중 / 최근 분석 작업")
+        for item in active_jobs[:5]:
+            parts.append(
+                f"• {item.get('job_id')} · {item.get('status','queued')} · "
+                f"{item.get('stage') or 'stage 없음'}"
+            )
+    if recent_outputs:
+        if parts:
+            parts.append("")
+        parts.append("최근 생성 결과")
+        for item in recent_outputs[:5]:
+            parts.append(
+                f"• {item.get('uid')} · {item.get('pdf_name') or item.get('download_name')} · "
+                f"{item.get('slide_count', 0)}장 / {item.get('question_count', 0)}문항"
+            )
+    return "\n".join(parts) if parts else "현재 표시할 Teach-On 작업이 없습니다."
+
+
+def _summarize_job_detail_for_slack(target_ref: str) -> str:
+    detail = dashboard_job_detail(target_ref)
+    if not detail:
+        return "작업을 찾을 수 없습니다. uid 또는 job id를 다시 확인해 주세요."
+
+    if "slides" in detail:
+        lines = [
+            f"결과물: {detail.get('pdf_name') or detail.get('download_name') or target_ref}",
+            f"슬라이드 {len(detail.get('slides') or [])}장 · 문항 {len(detail.get('questions') or [])}개",
+        ]
+        preview_url = detail.get("preview_url") or ""
+        if preview_url and config.PUBLIC_BASE_URL:
+            lines.append(f"미리보기: {config.PUBLIC_BASE_URL.rstrip('/')}{preview_url}")
+        return "\n".join(lines)
+
+    return (
+        f"분석 Job {detail.get('job_id')}\n"
+        f"상태: {detail.get('status')}\n"
+        f"단계: {detail.get('stage')}\n"
+        f"메시지: {detail.get('message') or '없음'}"
+    )
+
+
+def _dashboard_agent_task_payload(body: dict) -> dict:
+    return {
+        "agent": str(body.get("agent") or "pm").strip().lower(),
+        "target_ref": str(body.get("target_ref") or "").strip(),
+        "instruction": str(body.get("instruction") or "").strip(),
+        "requested_by": str(body.get("requested_by") or session.get("teachon_admin_username") or "dashboard").strip(),
+        "source": str(body.get("source") or "dashboard").strip().lower() or "dashboard",
+    }
+
+
+def _create_and_run_agent_task(body: dict, async_mode: bool = False, on_complete=None) -> dict:
+    task = create_agent_task(_dashboard_agent_task_payload(body))
+    if async_mode:
+        run_agent_task_async(task["id"], on_complete=on_complete)
+        return get_agent_task(task["id"]) or task
+    return run_agent_task(task["id"])
+
+
+def _post_agent_task_result_to_slack(task: dict):
+    target_ref = task.get("target_ref") or "대상 없음"
+    text = (
+        f"*{task.get('agent_label')}* 작업 결과\n"
+        f"대상: {target_ref}\n"
+        f"상태: {task.get('status')}\n\n"
+        f"{task.get('result_preview') or task.get('message') or ''}"
+    )
+    response_url = task.get("response_url") or ""
+    if response_url:
+        slack_post_response_url(response_url, text, response_type="ephemeral")
+        return
+    channel_id = task.get("channel_id") or config.SLACK_DEFAULT_CHANNEL
+    if channel_id:
+        slack_post_message(channel_id, text, thread_ts=task.get("thread_ts") or "")
+
+
+def _handle_slack_task_command(agent: str, target_ref: str, instruction: str, *, channel_id: str = "", thread_ts: str = "", response_url: str = "") -> dict:
+    task = create_agent_task(
+        {
+            "agent": agent,
+            "target_ref": target_ref,
+            "instruction": instruction,
+            "requested_by": "slack",
+            "source": "slack",
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "response_url": response_url,
+        }
+    )
+    run_agent_task_async(task["id"], on_complete=_post_agent_task_result_to_slack)
+    return task
+
+
+def _handle_slack_command(text: str, *, channel_id: str = "", thread_ts: str = "", response_url: str = "") -> tuple[str, str]:
+    raw = (text or "").strip()
+    if not raw:
+        return slack_help_text(), "ephemeral"
+
+    parts = raw.split()
+    command = parts[0].lower()
+    args = parts[1:]
+
+    if command in {"help", "?", "commands"}:
+        return slack_help_text(), "ephemeral"
+    if command in {"jobs", "recent"}:
+        return _summarize_jobs_for_slack(), "ephemeral"
+    if command == "status":
+        if not args:
+            return "예: /teachon status <uid-or-job>", "ephemeral"
+        return _summarize_job_detail_for_slack(args[0]), "ephemeral"
+    if command == "share":
+        if not args:
+            return "예: /teachon share <uid>", "ephemeral"
+        detail = dashboard_job_detail(args[0])
+        if not detail or "slides" not in detail:
+            return "공유할 결과물을 찾지 못했습니다.", "ephemeral"
+        message = format_share_message(detail, args[0])
+        result = slack_post_message(channel_id or config.SLACK_DEFAULT_CHANNEL, message, thread_ts=thread_ts)
+        if result.get("ok"):
+            return "현재 채널에 결과물 링크를 공유했습니다.", "ephemeral"
+        return f"Slack 공유 실패: {result.get('error') or 'unknown error'}", "ephemeral"
+    if command == "feedback":
+        if len(args) < 2:
+            return "예: /teachon feedback <uid> <message>", "ephemeral"
+        task = _handle_slack_task_command("pm", args[0], f"사용자 피드백을 기록하고 다음 액션을 제안하세요: {' '.join(args[1:])}", channel_id=channel_id, thread_ts=thread_ts, response_url=response_url)
+        return f"피드백을 PM 에이전트에 전달했습니다. task_id={task['id']}", "ephemeral"
+    if command == "task":
+        if len(args) < 3:
+            return "예: /teachon task <agent> <uid> <instruction>", "ephemeral"
+        agent = args[0].strip().lower()
+        if agent not in {item["key"] for item in available_agents()}:
+            return "지원하지 않는 에이전트입니다. pm, curriculum, content, fact_checker, question, reviewer, layout, formatter 중에서 선택해 주세요.", "ephemeral"
+        target_ref = args[1].strip()
+        instruction = " ".join(args[2:]).strip()
+        task = _handle_slack_task_command(agent, target_ref, instruction, channel_id=channel_id, thread_ts=thread_ts, response_url=response_url)
+        return f"{task['agent_label']} 작업을 접수했습니다. task_id={task['id']}", "ephemeral"
+    return slack_help_text(), "ephemeral"
 
 
 _ensure_utf8_runtime()
@@ -1601,6 +1772,120 @@ def api_dashboard_connector_invoke(connector_id):
     result = invoke_connector(connector_id, payload=payload)
     status = 200 if result.get("ok") else 400
     return _json_response(result, status=status)
+
+
+@app.route("/api/dashboard/agent-tasks", methods=["GET", "POST"])
+def api_dashboard_agent_tasks():
+    guard = _dashboard_guard(mutate=request.method != "GET")
+    if guard:
+        return guard
+
+    if request.method == "GET":
+        try:
+            limit = max(1, min(100, int(request.args.get("limit", 25) or 25)))
+        except (TypeError, ValueError):
+            limit = 25
+        return _json_response({"agents": available_agents(), "tasks": list_agent_tasks(limit)})
+
+    body = request.get_json(silent=True) or {}
+    async_mode = str(body.get("async", "false")).strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        task = _create_and_run_agent_task(body, async_mode=async_mode)
+        return _json_response({"ok": True, "task": task})
+    except Exception as exc:
+        return _json_response({"error": str(exc)}, status=400)
+
+
+@app.route("/api/dashboard/agent-tasks/<task_id>", methods=["GET"])
+def api_dashboard_agent_task_detail(task_id):
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    task = get_agent_task(task_id)
+    if not task:
+        return _json_response({"error": "에이전트 작업을 찾을 수 없습니다."}, status=404)
+    return _json_response({"task": task})
+
+
+@app.route("/api/dashboard/slack/status", methods=["GET"])
+def api_dashboard_slack_status():
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    return _json_response(slack_status())
+
+
+@app.route("/api/dashboard/slack/test-post", methods=["POST"])
+def api_dashboard_slack_test_post():
+    guard = _dashboard_guard(mutate=True)
+    if guard:
+        return guard
+    body = request.get_json(silent=True) or {}
+    channel = str(body.get("channel") or config.SLACK_DEFAULT_CHANNEL or "").strip()
+    text = str(body.get("text") or "Teach-On Dashboard에서 Slack 연결 테스트를 보냈습니다.").strip()
+    result = slack_post_message(channel, text)
+    status = 200 if result.get("ok") else 400
+    return _json_response(result, status=status)
+
+
+@app.route("/slack/commands", methods=["POST"])
+def slack_commands():
+    if not config.SLACK_EVENTS_ENABLED:
+        return _slack_json_response({"response_type": "ephemeral", "text": "Slack 연동이 비활성화되어 있습니다."}, status=403)
+
+    ok, message = verify_slack_request(request)
+    if not ok:
+        return _slack_json_response({"response_type": "ephemeral", "text": f"Slack 요청 검증 실패: {message}"}, status=401)
+
+    form = parse_qs(request.get_data(cache=True, as_text=True), keep_blank_values=True)
+    text = (form.get("text") or [""])[0]
+    channel_id = (form.get("channel_id") or [""])[0]
+    response_url = (form.get("response_url") or [""])[0]
+    record_slack_activity("slash_command", {"text": text, "channel_id": channel_id})
+    reply_text, response_type = _handle_slack_command(
+        text,
+        channel_id=channel_id,
+        response_url=response_url,
+    )
+    return _slack_json_response({"response_type": response_type, "text": reply_text})
+
+
+@app.route("/slack/events", methods=["POST"])
+def slack_events():
+    payload = request.get_json(silent=True) or {}
+    if payload.get("type") == "url_verification":
+        record_slack_activity("url_verification", {"host": request.host})
+        return _json_response({"challenge": payload.get("challenge", "")})
+
+    if not config.SLACK_EVENTS_ENABLED:
+        return _json_response({"ok": False, "error": "slack disabled"}, status=403)
+
+    ok, message = verify_slack_request(request)
+    if not ok:
+        return _json_response({"ok": False, "error": message}, status=401)
+
+    if payload.get("type") != "event_callback":
+        return _json_response({"ok": True})
+
+    event = payload.get("event") or {}
+    event_type = str(event.get("type") or "").strip().lower()
+    if event_type not in {"app_mention", "message"}:
+        return _json_response({"ok": True})
+    if event.get("bot_id"):
+        return _json_response({"ok": True})
+
+    text = strip_bot_mention(event.get("text") or "")
+    channel_id = str(event.get("channel") or "").strip()
+    thread_ts = str(event.get("thread_ts") or event.get("ts") or "").strip()
+    record_slack_activity("event", {"type": event_type, "channel_id": channel_id, "text": text})
+
+    def _respond():
+        reply_text, _ = _handle_slack_command(text, channel_id=channel_id, thread_ts=thread_ts)
+        if channel_id:
+            slack_post_message(channel_id, reply_text, thread_ts=thread_ts)
+
+    threading.Thread(target=_respond, daemon=True).start()
+    return _json_response({"ok": True})
 
 
 @app.route("/api/history", methods=["GET"])

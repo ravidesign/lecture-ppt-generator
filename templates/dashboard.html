@@ -80,6 +80,9 @@ a{color:inherit}
 .badge.err{background:#3A1414;color:#FECACA}
 .job-actions,.connector-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .job-agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px}
+.trace-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:8px;margin-top:12px}
+.trace-node{padding:8px 10px;border-radius:12px;background:#0B1220;border:1px solid var(--line);font-size:11px;color:var(--sub)}
+.trace-node strong{display:block;color:var(--text);font-size:11px;margin-bottom:4px}
 .agent-chip{padding:10px 12px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 .agent-chip .name{font-size:11px;font-weight:800}
 .agent-chip .status{font-size:11px;color:var(--sub);margin-top:3px}
@@ -87,6 +90,8 @@ a{color:inherit}
 .agent-chip.completed{border-color:#22C55E;background:#13281D}
 .agent-chip.revise{border-color:#F59E0B;background:#2B210F}
 .agent-chip.failed{border-color:#EF4444;background:#2C1313}
+.agent-task-result{margin-top:12px;padding:12px;border-radius:12px;background:#0B1220;border:1px solid var(--line);font-size:12px;line-height:1.7;color:var(--sub);white-space:pre-wrap}
+.code-kbd{display:inline-flex;align-items:center;padding:4px 8px;border-radius:8px;background:#0B1220;border:1px solid var(--line);font-size:11px;font-weight:800}
 .output-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .mini-link{display:inline-flex;align-items:center;padding:7px 10px;border-radius:10px;font-size:12px;font-weight:700;background:#0B1220;border:1px solid var(--line);text-decoration:none}
 .mini-link:hover{border-color:#3B82F6}
@@ -192,6 +197,82 @@ a{color:inherit}
         <div class="panel-title">최근 생성 결과물</div>
         <div class="job-list" id="outputList">
           <div class="empty">결과물을 불러오는 중입니다...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="agentControlSection">
+    <div class="section-head">
+      <div>
+        <div class="section-title">Agent Control Center</div>
+        <div class="section-sub">대시보드에서 직접 에이전트에게 일을 시키거나, 같은 명령을 Slack에서 사용할 수 있도록 운영 흐름을 통합합니다.</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">대시보드에서 에이전트 작업 지시</div>
+        <div class="panel-sub">특정 결과물 uid 또는 분석 job id를 대상으로 PM, Reviewer, Layout 등 원하는 에이전트에 직접 지시사항을 보낼 수 있습니다. 결과는 오른쪽 작업 로그와 Slack 회신에서 함께 확인됩니다.</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="section-sub">대상 uid / job id</label>
+            <input type="text" id="agentTargetRef" class="input" placeholder="예: 4f19c2ab 또는 analyze job id">
+          </div>
+          <div class="field">
+            <label class="section-sub">에이전트</label>
+            <select id="agentSelect" class="select"></select>
+          </div>
+          <div class="field full">
+            <label class="section-sub">지시사항</label>
+            <textarea id="agentInstruction" class="textarea" placeholder="예: 이미지 활용이 약한 슬라이드를 찾아 레이아웃 개선안을 제시해 주세요."></textarea>
+          </div>
+        </div>
+        <div class="job-actions">
+          <button type="button" class="btn primary" id="runAgentTaskBtn">에이전트 작업 실행</button>
+          <button type="button" class="btn" id="refreshAgentTasksBtn">작업 로그 새로고침</button>
+        </div>
+        <div class="status-box" id="agentTaskStatus"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Slack Command Center</div>
+        <div class="panel-sub">Slack App에 slash command와 event subscription을 연결하면 Slack에서 바로 상태 조회, 결과 공유, 에이전트 작업 지시, 피드백 전달을 할 수 있습니다.</div>
+        <div class="badges" style="margin-bottom:12px">
+          <span class="badge" id="slackCommandBadge">/teachon</span>
+          <span class="badge" id="slackEnabledBadge">Slack 상태 확인 중</span>
+        </div>
+        <div class="security-list" id="slackSetupList">
+          <div class="empty">Slack 설정 상태를 불러오는 중입니다...</div>
+        </div>
+        <div class="form-grid section">
+          <div class="field">
+            <label class="section-sub">테스트 채널</label>
+            <input type="text" id="slackChannelInput" class="input" placeholder="예: C0123456789 또는 #ops">
+          </div>
+          <div class="field">
+            <label class="section-sub">테스트 메시지</label>
+            <input type="text" id="slackTextInput" class="input" placeholder="Teach-On Slack 연결 테스트">
+          </div>
+        </div>
+        <div class="job-actions">
+          <button type="button" class="btn primary" id="slackTestBtn">Slack 테스트 메시지 보내기</button>
+        </div>
+        <div class="status-box" id="slackStatusBox"></div>
+        <div class="agent-task-result" id="slackExamplesBox">명령 예시를 불러오는 중입니다...</div>
+      </div>
+    </div>
+
+    <div class="grid-2 section">
+      <div class="panel">
+        <div class="panel-title">최근 에이전트 작업</div>
+        <div class="job-list" id="agentTaskList">
+          <div class="empty">에이전트 작업 로그를 불러오는 중입니다...</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">최근 Slack 활동</div>
+        <div class="job-list" id="slackActivityList">
+          <div class="empty">Slack 활동 로그를 불러오는 중입니다...</div>
         </div>
       </div>
     </div>
@@ -341,6 +422,7 @@ function resetProtectedPanels(message) {
 function setDashboardLocked(locked, message) {
   $('dashboardLockedSection').classList.toggle('hidden', !locked);
   $('monitoringSection').classList.toggle('hidden', locked);
+  $('agentControlSection').classList.toggle('hidden', locked);
   $('connectorsSection').classList.toggle('hidden', locked);
   $('refreshBtn').disabled = locked;
   if (locked) {
@@ -450,12 +532,20 @@ function renderSecurity(data) {
 function renderJobTrace(agents) {
   const rows = Array.isArray(agents) ? agents : [];
   if (!rows.length) return '<div class="muted">에이전트 상태 정보가 없습니다.</div>';
-  return `<div class="job-agents">${rows.map(agent => `
+  return `
+    <div class="trace-bar">${rows.map(agent => `
+      <div class="trace-node">
+        <strong>${esc(agent.label || agent.key || 'agent')}</strong>
+        ${esc(agent.status || 'queued')}
+      </div>
+    `).join('')}</div>
+    <div class="job-agents">${rows.map(agent => `
     <div class="agent-chip ${esc(agent.status || 'queued')}">
       <div class="name">${esc(agent.label || agent.key || 'agent')}</div>
       <div class="status">${esc(agent.status || 'queued')} · ${esc(agent.message || '')}</div>
     </div>
-  `).join('')}</div>`;
+  `).join('')}</div>
+  `;
 }
 
 function renderJobs(data) {
@@ -613,6 +703,73 @@ function renderConnectors(data) {
   });
 }
 
+function renderAgentTasks(data) {
+  const tasks = data.tasks || [];
+  const agents = data.agents || [];
+  $('agentSelect').innerHTML = agents.map(item => `
+    <option value="${esc(item.key)}">${esc(item.label)}</option>
+  `).join('');
+  $('agentTaskList').innerHTML = tasks.length ? tasks.map(task => `
+    <div class="job-card">
+      <div class="job-top">
+        <div>
+          <div class="job-name">${esc(task.agent_label || task.agent)}</div>
+          <div class="job-meta">${esc(task.target_ref || '대상 없음')} · ${esc(task.created_at || '')} · ${esc(task.source || 'dashboard')}</div>
+        </div>
+        ${statusBadge(task.status)}
+      </div>
+      <div class="job-meta" style="margin-top:10px">${esc(task.instruction || '')}</div>
+      ${task.result_preview ? `<div class="agent-task-result">${esc(task.result_preview)}</div>` : ''}
+    </div>
+  `).join('') : '<div class="empty">최근 실행한 에이전트 작업이 없습니다.</div>';
+}
+
+function renderSlackStatus(data) {
+  const enabled = !!data.enabled;
+  $('slackCommandBadge').textContent = data.command_name || '/teachon';
+  $('slackEnabledBadge').textContent = enabled ? 'Slack 사용 가능' : 'Slack 설정 필요';
+  $('slackEnabledBadge').className = `badge ${enabled ? 'ok' : 'warn'}`;
+
+  const items = [
+    ['Bot Token', data.token_configured ? '설정됨' : '미설정', data.token_configured ? 'ok' : 'warn'],
+    ['Signing Secret', data.signing_secret_configured ? '설정됨' : '미설정', data.signing_secret_configured ? 'ok' : 'warn'],
+    ['Slash Command URL', data.command_url || 'PUBLIC_BASE_URL 설정 필요', data.command_url ? 'ok' : 'warn'],
+    ['Events URL', data.events_url || 'PUBLIC_BASE_URL 설정 필요', data.events_url ? 'ok' : 'warn'],
+    ['기본 채널', data.default_channel || '미설정', data.default_channel ? 'ok' : 'warn'],
+  ];
+
+  $('slackSetupList').innerHTML = items.map(item => `
+    <div class="finding">
+      <div class="finding-dot ${esc(item[2])}"></div>
+      <div>
+        <div class="finding-title">${esc(item[0])}</div>
+        <div class="finding-msg">${esc(item[1])}</div>
+      </div>
+    </div>
+  `).join('');
+
+  const cmd = data.command_name || '/teachon';
+  $('slackExamplesBox').textContent =
+`${cmd} jobs
+${cmd} status <uid-or-job>
+${cmd} share <uid>
+${cmd} task layout <uid> 이미지 중심 레이아웃으로 개선해줘
+${cmd} feedback <uid> 12번 슬라이드가 너무 과밀해요`;
+
+  $('slackActivityList').innerHTML = (data.recent_activity || []).length ? data.recent_activity.map(item => `
+    <div class="job-card">
+      <div class="job-top">
+        <div>
+          <div class="job-name">${esc(item.kind || 'activity')}</div>
+          <div class="job-meta">${esc(item.time || '')}</div>
+        </div>
+        <span class="badge">${esc(item.payload?.ok === false ? 'error' : 'logged')}</span>
+      </div>
+      <div class="agent-task-result">${esc(JSON.stringify(item.payload || {}, null, 2))}</div>
+    </div>
+  `).join('') : '<div class="empty">최근 Slack 활동 로그가 없습니다.</div>';
+}
+
 async function loadOverview() {
   const [overview, security, jobs] = await Promise.all([
     apiFetch('/api/dashboard/overview'),
@@ -629,11 +786,21 @@ async function loadConnectors() {
   renderConnectors(data);
 }
 
+async function loadAgentTasks() {
+  const data = await apiFetch('/api/dashboard/agent-tasks');
+  renderAgentTasks(data);
+}
+
+async function loadSlackStatus() {
+  const data = await apiFetch('/api/dashboard/slack/status');
+  renderSlackStatus(data);
+}
+
 async function refreshAll() {
   try {
     await loadAuthStatus();
     if (!canAccessDashboard()) return;
-    await Promise.all([loadOverview(), loadConnectors()]);
+    await Promise.all([loadOverview(), loadConnectors(), loadAgentTasks(), loadSlackStatus()]);
   } catch (error) {
     setConnectorStatus('err', error.message);
   }
@@ -703,6 +870,44 @@ $('saveConnectorBtn').addEventListener('click', async () => {
 });
 
 $('resetConnectorBtn').addEventListener('click', resetConnectorForm);
+$('runAgentTaskBtn').addEventListener('click', async () => {
+  try {
+    const target_ref = $('agentTargetRef').value.trim();
+    const agent = $('agentSelect').value;
+    const instruction = $('agentInstruction').value.trim();
+    if (!target_ref) throw new Error('대상 uid 또는 job id를 입력해 주세요.');
+    if (!instruction) throw new Error('에이전트 지시사항을 입력해 주세요.');
+    setBoxState('agentTaskStatus', 'info', '에이전트 작업을 실행하고 있습니다...');
+    const data = await apiFetch('/api/dashboard/agent-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_ref, agent, instruction }),
+    });
+    setBoxState('agentTaskStatus', 'ok', `작업 완료 · ${data.task?.agent_label || agent}`);
+    $('agentInstruction').value = '';
+    await loadAgentTasks();
+  } catch (error) {
+    setBoxState('agentTaskStatus', 'err', error.message);
+  }
+});
+$('refreshAgentTasksBtn').addEventListener('click', loadAgentTasks);
+$('slackTestBtn').addEventListener('click', async () => {
+  try {
+    setBoxState('slackStatusBox', 'info', 'Slack 테스트 메시지를 보내는 중입니다...');
+    const data = await apiFetch('/api/dashboard/slack/test-post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: $('slackChannelInput').value.trim(),
+        text: $('slackTextInput').value.trim(),
+      }),
+    });
+    setBoxState('slackStatusBox', 'ok', `Slack 전송 완료 · channel ${data.channel || $('slackChannelInput').value.trim() || ''}`);
+    await loadSlackStatus();
+  } catch (error) {
+    setBoxState('slackStatusBox', 'err', error.message);
+  }
+});
 $('refreshBtn').addEventListener('click', refreshAll);
 $('loginPasswordInput').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
@@ -713,6 +918,7 @@ $('loginPasswordInput').addEventListener('keydown', (event) => {
 
 function init() {
   resetConnectorForm();
+  $('slackTextInput').value = 'Teach-On Slack 연결 테스트입니다.';
   resetProtectedPanels('관리자 로그인 후 운영 데이터를 볼 수 있습니다.');
   refreshAll();
 }

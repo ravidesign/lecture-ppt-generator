@@ -23,6 +23,8 @@ DOCX_DIR = OUTPUTS_DIR / "docx"
 LOGS_DIR = OUTPUTS_DIR / "logs"
 DASHBOARD_DIR = OUTPUTS_DIR / "dashboard"
 INTEGRATIONS_FILE = DASHBOARD_DIR / "connectors.json"
+AGENT_TASKS_FILE = DASHBOARD_DIR / "agent_tasks.json"
+SLACK_ACTIVITY_FILE = DASHBOARD_DIR / "slack_activity.json"
 
 MAX_UPLOAD_MB = max(4, int(os.getenv("MAX_UPLOAD_MB", "24") or "24"))
 ADMIN_TOKEN = (
@@ -39,6 +41,16 @@ ADMIN_USERNAME = os.getenv("TEACHON_ADMIN_USERNAME", "admin").strip() or "admin"
 ADMIN_PASSWORD = os.getenv("TEACHON_ADMIN_PASSWORD", "").strip()
 ADMIN_PASSWORD_HASH = os.getenv("TEACHON_ADMIN_PASSWORD_HASH", "").strip()
 DASHBOARD_IP_ALLOWLIST = os.getenv("TEACHON_DASHBOARD_IP_ALLOWLIST", "").strip()
+PUBLIC_BASE_URL = (
+    os.getenv("TEACHON_PUBLIC_BASE_URL", "").strip()
+    or os.getenv("PUBLIC_BASE_URL", "").strip()
+)
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "").strip()
+SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "").strip()
+SLACK_DEFAULT_CHANNEL = os.getenv("SLACK_DEFAULT_CHANNEL", "").strip()
+SLACK_COMMAND_NAME = os.getenv("SLACK_COMMAND_NAME", "/teachon").strip() or "/teachon"
+SLACK_EVENTS_ENABLED = (os.getenv("SLACK_EVENTS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"})
+SLACK_REQUEST_TOLERANCE_SECONDS = max(60, int(os.getenv("SLACK_REQUEST_TOLERANCE_SECONDS", "300") or "300"))
 
 PM_MODEL = "claude-opus-4-5"
 CURRICULUM_MODEL = "claude-sonnet-4-6"
