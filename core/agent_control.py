@@ -127,6 +127,11 @@ def _normalize_task_payload(data: dict) -> dict:
         "channel_id": str(data.get("channel_id") or "").strip(),
         "thread_ts": str(data.get("thread_ts") or "").strip(),
         "response_url": str(data.get("response_url") or "").strip(),
+        "transport": str(data.get("transport") or "").strip().lower(),
+        "transport_chat_id": str(data.get("transport_chat_id") or "").strip(),
+        "transport_message_id": str(data.get("transport_message_id") or "").strip(),
+        "parent_task_id": str(data.get("parent_task_id") or "").strip(),
+        "delegated_by": str(data.get("delegated_by") or "").strip(),
     }
 
 
@@ -273,4 +278,3 @@ def run_agent_task_async(task_id: str, on_complete: Callable[[dict], None] | Non
     thread = threading.Thread(target=_runner, daemon=True)
     thread.start()
     return task
-

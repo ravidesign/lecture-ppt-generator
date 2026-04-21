@@ -330,11 +330,12 @@ a{color:inherit}
             <select id="connectorAuthType" class="select">
               <option value="none">없음</option>
               <option value="bearer_env">Bearer (env)</option>
+              <option value="x_figma_token_env">X-Figma-Token (env)</option>
             </select>
           </div>
           <div class="field">
             <label class="section-sub">API Key ENV</label>
-            <input type="text" id="connectorApiKeyEnv" class="input" placeholder="예: AGENT_GATEWAY_TOKEN">
+            <input type="text" id="connectorApiKeyEnv" class="input" placeholder="예: AGENT_GATEWAY_TOKEN 또는 FIGMA_ACCESS_TOKEN">
           </div>
           <div class="field full">
             <label class="section-sub">Capabilities (쉼표 구분)</label>

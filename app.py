@@ -49,6 +49,10 @@ from core.dashboard_service import (
     upsert_connector,
 )
 from core.history import add_record, get_history
+from core.pm_dispatcher import (
+    format_agent_task_result as format_pm_task_result,
+    handle_telegram_message as handle_telegram_pm_message,
+)
 from core.pdf_parser import (
     build_page_plan_preview,
     extract_pdf_images,
@@ -82,6 +86,16 @@ from core.slack_service import (
     slack_status,
     strip_bot_mention,
     verify_request as verify_slack_request,
+)
+from core.telegram_service import (
+    answer_callback_query as telegram_answer_callback_query,
+    extract_update_context as telegram_extract_update_context,
+    is_allowed_chat as telegram_is_allowed_chat,
+    record_telegram_activity,
+    record_thread_context as telegram_record_thread_context,
+    send_message as telegram_send_message,
+    telegram_status,
+    verify_request as verify_telegram_request,
 )
 from flows import build_initial_agent_trace, run_full_pipeline
 from tools.docx_tool import save_exam_artifacts
@@ -386,6 +400,28 @@ def _post_agent_task_result_to_slack(task: dict):
     channel_id = task.get("channel_id") or config.SLACK_DEFAULT_CHANNEL
     if channel_id:
         slack_post_message(channel_id, text, thread_ts=task.get("thread_ts") or "")
+
+
+def _post_agent_task_result_to_telegram(task: dict):
+    chat_id = task.get("transport_chat_id") or config.TELEGRAM_DEFAULT_CHAT_ID
+    if not chat_id:
+        return
+    reply_to_message_id = None
+    raw_message_id = str(task.get("transport_message_id") or "").strip()
+    if raw_message_id.isdigit():
+        reply_to_message_id = int(raw_message_id)
+    telegram_send_message(
+        chat_id,
+        format_pm_task_result(task),
+        reply_to_message_id=reply_to_message_id,
+    )
+    telegram_record_thread_context(
+        chat_id,
+        reply_to_message_id,
+        "assistant",
+        format_pm_task_result(task),
+        metadata={"task_id": task.get("id"), "status": task.get("status")},
+    )
 
 
 def _handle_slack_task_command(agent: str, target_ref: str, instruction: str, *, channel_id: str = "", thread_ts: str = "", response_url: str = "") -> dict:
@@ -1828,6 +1864,27 @@ def api_dashboard_slack_test_post():
     return _json_response(result, status=status)
 
 
+@app.route("/api/dashboard/telegram/status", methods=["GET"])
+def api_dashboard_telegram_status():
+    guard = _dashboard_guard()
+    if guard:
+        return guard
+    return _json_response(telegram_status())
+
+
+@app.route("/api/dashboard/telegram/test-post", methods=["POST"])
+def api_dashboard_telegram_test_post():
+    guard = _dashboard_guard(mutate=True)
+    if guard:
+        return guard
+    body = request.get_json(silent=True) or {}
+    chat_id = str(body.get("chat_id") or config.TELEGRAM_DEFAULT_CHAT_ID or "").strip()
+    text = str(body.get("text") or "Teach-On Dashboard에서 Telegram 연결 테스트를 보냈습니다.").strip()
+    result = telegram_send_message(chat_id, text)
+    status = 200 if result.get("ok") else 400
+    return _json_response(result, status=status)
+
+
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
     if not config.SLACK_EVENTS_ENABLED:
@@ -1883,6 +1940,114 @@ def slack_events():
         reply_text, _ = _handle_slack_command(text, channel_id=channel_id, thread_ts=thread_ts)
         if channel_id:
             slack_post_message(channel_id, reply_text, thread_ts=thread_ts)
+
+    threading.Thread(target=_respond, daemon=True).start()
+    return _json_response({"ok": True})
+
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+    if not config.TELEGRAM_WEBHOOK_ENABLED:
+        return _json_response({"ok": False, "error": "telegram disabled"}, status=403)
+
+    ok, message = verify_telegram_request(request)
+    if not ok:
+        return _json_response({"ok": False, "error": message}, status=401)
+
+    payload = request.get_json(silent=True) or {}
+    context = telegram_extract_update_context(payload)
+    if not context:
+        record_telegram_activity("ignored_update", {"update_id": payload.get("update_id")})
+        return _json_response({"ok": True, "ignored": True})
+
+    chat_id = str(context.get("chat_id") or "").strip()
+    callback_query_id = str(context.get("callback_query_id") or "").strip()
+    if context.get("is_bot"):
+        return _json_response({"ok": True, "ignored": True})
+    if not telegram_is_allowed_chat(chat_id):
+        record_telegram_activity(
+            "rejected_chat",
+            {
+                "chat_id": chat_id,
+                "kind": context.get("kind"),
+                "message_id": context.get("message_id"),
+            },
+        )
+        if callback_query_id:
+            telegram_answer_callback_query(callback_query_id, text="허용되지 않은 채팅입니다.", show_alert=True)
+        return _json_response({"ok": True, "ignored": True})
+
+    record_telegram_activity(
+        "update",
+        {
+            "kind": context.get("kind"),
+            "chat_id": chat_id,
+            "message_id": context.get("message_id"),
+            "username": context.get("username"),
+            "text": str(context.get("text") or "")[:240],
+        },
+    )
+    telegram_record_thread_context(
+        chat_id,
+        context.get("message_id"),
+        "user",
+        str(context.get("text") or ""),
+        metadata={
+            "kind": context.get("kind"),
+            "username": context.get("username"),
+        },
+    )
+
+    def _respond():
+        try:
+            result = handle_telegram_pm_message(
+                str(context.get("text") or ""),
+                chat_id=chat_id,
+                message_id=context.get("message_id"),
+                username=str(context.get("username") or ""),
+                display_name=str(context.get("display_name") or ""),
+                on_complete=_post_agent_task_result_to_telegram,
+            )
+            reply_text = str(result.get("reply_text") or "").strip()
+            if reply_text and chat_id:
+                telegram_send_message(
+                    chat_id,
+                    reply_text,
+                    reply_to_message_id=context.get("message_id"),
+                )
+                telegram_record_thread_context(
+                    chat_id,
+                    context.get("message_id"),
+                    "assistant",
+                    reply_text,
+                    metadata={"kind": "reply"},
+                )
+            if callback_query_id:
+                telegram_answer_callback_query(
+                    callback_query_id,
+                    text=str(result.get("callback_text") or "처리했습니다."),
+                )
+        except Exception as exc:
+            error_text = _safe_error_text(exc)
+            record_telegram_activity(
+                "handler_error",
+                {
+                    "chat_id": chat_id,
+                    "message_id": context.get("message_id"),
+                    "error": error_text,
+                },
+            )
+            if chat_id:
+                telegram_send_message(chat_id, f"Telegram 처리 중 오류가 발생했습니다: {error_text}")
+                telegram_record_thread_context(
+                    chat_id,
+                    context.get("message_id"),
+                    "assistant",
+                    f"Telegram 처리 중 오류가 발생했습니다: {error_text}",
+                    metadata={"kind": "error"},
+                )
+            if callback_query_id:
+                telegram_answer_callback_query(callback_query_id, text="처리 중 오류가 발생했습니다.", show_alert=True)
 
     threading.Thread(target=_respond, daemon=True).start()
     return _json_response({"ok": True})

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,9 +15,15 @@ from urllib.request import Request, urlopen
 import config
 from core.security import dashboard_allowlist_networks, rate_limit_summary
 
+try:
+    import certifi
+except Exception:  # pragma: no cover - optional dependency at runtime
+    certifi = None
+
 
 SAFE_CONNECTOR_ID = re.compile(r"[^a-z0-9_-]+")
 CONNECTOR_TYPES = {"webhook", "agent_api", "automation", "mcp_bridge"}
+CONNECTOR_AUTH_TYPES = {"none", "bearer_env", "x_figma_token_env"}
 ARTIFACT_SUFFIX_MAP = {
     "ppt": ".pptx",
     "exam": ".docx",
@@ -84,6 +91,15 @@ def _safe_url(value: str) -> str:
     return text
 
 
+def _ssl_context() -> ssl.SSLContext:
+    if certifi is not None:
+        try:
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            pass
+    return ssl.create_default_context()
+
+
 def _connector_headers(connector: dict) -> dict[str, str]:
     headers = {
         "Accept": "application/json, text/plain;q=0.9, */*;q=0.8",
@@ -95,6 +111,10 @@ def _connector_headers(connector: dict) -> dict[str, str]:
         token = os.getenv(env_name, "").strip()
         if token:
             headers["Authorization"] = f"Bearer {token}"
+    if auth_type == "x_figma_token_env" and env_name:
+        token = os.getenv(env_name, "").strip()
+        if token:
+            headers["X-Figma-Token"] = token
     return headers
 
 
@@ -140,6 +160,8 @@ def normalize_connector_payload(data: dict) -> dict:
 
     requested_type = str(data.get("type") or "webhook").strip().lower()
     connector_type = requested_type if requested_type in CONNECTOR_TYPES else "webhook"
+    requested_auth_type = str(data.get("auth_type") or "none").strip().lower()
+    auth_type = requested_auth_type if requested_auth_type in CONNECTOR_AUTH_TYPES else "none"
     name = str(data.get("name") or "").strip() or "새 커넥터"
 
     return {
@@ -152,7 +174,7 @@ def normalize_connector_payload(data: dict) -> dict:
         "trigger_url": _safe_url(data.get("trigger_url") or ""),
         "capabilities": capabilities,
         "enabled": _coerce_bool(data.get("enabled"), True),
-        "auth_type": str(data.get("auth_type") or "none").strip().lower() or "none",
+        "auth_type": auth_type,
         "api_key_env": str(data.get("api_key_env") or "").strip(),
     }
 
@@ -222,7 +244,7 @@ def test_connector(connector_id: str, timeout_seconds: int = 8) -> dict:
     headers = _connector_headers(connector)
     request = Request(target_url, method="GET", headers=headers)
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:
+        with urlopen(request, timeout=timeout_seconds, context=_ssl_context()) as response:
             body = response.read(512).decode("utf-8", errors="replace")
             result = {
                 "ok": True,
@@ -275,7 +297,7 @@ def invoke_connector(connector_id: str, payload: dict | None = None, timeout_sec
     headers["Content-Type"] = "application/json"
     request = Request(target_url, data=body_bytes, method="POST", headers=headers)
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:
+        with urlopen(request, timeout=timeout_seconds, context=_ssl_context()) as response:
             body = response.read(1024).decode("utf-8", errors="replace")
             result = {
                 "ok": True,

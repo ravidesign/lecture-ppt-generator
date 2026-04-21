@@ -1,340 +1,356 @@
-# PDF → 강의 교안 PPT 생성기
+# Teach-On
 
-Flask + Claude API 기반의 PDF 강의 교안 자동 생성 도구.
-PDF를 업로드하면 Claude가 분석해 슬라이드 JSON을 만들고, python-pptx로 .pptx를 메모리에서 생성해 스트리밍 다운로드한다.
+Teach-On은 PDF 강의 자료를 분석해서 슬라이드 JSON, PPTX, 시험지 DOCX까지 생성하는 Flask 기반 강의안 제작 앱이다.  
+현재는 단순 PDF->PPT를 넘어서 다음 운영 레이어가 함께 들어가 있다.
 
----
+- 웹 분석/생성/미리보기/수정 플로우
+- 멀티 에이전트 기반 강의안/문항 파이프라인
+- 운영용 대시보드와 수동 에이전트 작업
+- Slack 운영 채널
+- Figma REST 연동과 Figma 설계 문서
+- PM 전용 Telegram 운영 채널 1차 구현
 
-## 배포 정보
+## 주소
 
-- **GitHub**: `ravidesign/lecture-ppt-generator` (main 브랜치 push → Render 자동 배포)
-- **Render URL**: `https://lecture-ppt-generator.onrender.com`
-- **로컬 실행**: `http://localhost:5050`
+- GitHub: `ravidesign/lecture-ppt-generator`
+- Production: `https://lecture-ppt-generator.onrender.com`
+- Local: `http://localhost:5050`
 
----
-
-## 프로젝트 구조
-
-```
-pdf-to-ppt/
-├── app.py                   # Flask 라우터 (모든 API 엔드포인트)
-├── core/
-│   ├── claude_analyzer.py   # PDF → Claude API → slides JSON
-│   ├── pdf_parser.py        # 페이지 선택, 이미지 추출 (PyMuPDF + Pillow)
-│   ├── ppt_generator.py     # slides JSON + design → .pptx (python-pptx)
-│   ├── slide_quality.py     # 슬라이드 품질 검사 및 content_kind 추론
-│   ├── slide_enricher.py    # PDF 이미지를 슬라이드에 매핑
-│   └── history.py           # 생성 히스토리 저장/조회 (history.json)
-├── templates/
-│   ├── index.html           # 메인 UI (업로드 → 분석 → 생성 → 완료)
-│   └── preview.html         # 슬라이드 뷰어 (썸네일 + 편집 패널)
-├── uploads/                 # 로고, PDF 이미지 번들 (PDF 자체는 처리 후 즉시 삭제)
-├── outputs/                 # {uid}_slides.json만 저장 (.pptx 파일 없음)
-├── Procfile                 # Render/gunicorn 실행 설정
-├── CODEX_SPEC.md            # 디자인 시스템 업그레이드 상세 스펙 (CODEX 전달용)
-└── requirements.txt
-```
-
----
-
-## 실행
+## 빠른 실행
 
 ```bash
-python -m venv venv && source venv/bin/activate
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # ANTHROPIC_API_KEY 입력
-python app.py          # http://localhost:5050
+cp .env.example .env
+python app.py
 ```
 
-**환경변수**: `ANTHROPIC_API_KEY` (필수), `FLASK_PORT` (기본 5050), `UPLOAD_DIR`, `OUTPUT_DIR`
+## 핵심 환경변수
 
-**Render/Production 실행** (`Procfile`):
-```
-PYTHONUTF8=1 PYTHONIOENCODING=utf-8 LANG=C.UTF-8 LC_ALL=C.UTF-8 gunicorn app:app --workers 2 --timeout 120 --bind 0.0.0.0:$PORT
-```
+필수:
 
----
+- `ANTHROPIC_API_KEY`
 
-## 핵심 데이터 흐름
+자주 쓰는 선택값:
 
-```
-[1] POST /api/analyze
-    PDF 파일 + 옵션 (slide_count, page_range, extra_prompt, enhance_scans)
-    → pdf_parser.resolve_page_selection()   # 페이지 범위 해석 (숫자/텍스트 힌트)
-    → pdf_parser.extract_pdf_images()       # PDF 내 이미지 추출 → uploads/assets_{uid}/
-    → claude_analyzer.analyze_pdf()         # Claude API → slides JSON
-    → slide_quality.review_slides()         # 품질 검사 + content_kind 추론
-    → slide_enricher.attach_pdf_images()    # 이미지를 슬라이드에 매핑
-    → 응답: { slides, outline, quality, assets, uid, page_plan, ocr_available }
+- `FLASK_PORT`
+- `UPLOAD_DIR`
+- `OUTPUT_DIR`
+- `PUBLIC_BASE_URL`
+- `FIGMA_ACCESS_TOKEN`
 
-[2] POST /api/generate
-    { slides, design, assets, pdf_name, page_plan }
-    → slide_quality.review_slides()         # 재검토
-    → slide_enricher.attach_pdf_images()    # 이미지 재매핑
-    → outputs/{uid}_slides.json 저장       # 미리보기 + 다운로드 payload
-    → .pptx 파일은 디스크에 저장하지 않음 (Render ephemeral filesystem 대응)
-    → 응답: { ok, preview_uid, slide_count, preset, download_name }
+Telegram PM 연동:
 
-[3] GET /preview/<uid>
-    → preview.html 렌더링 (Jinja uid 변수 전달)
-    → 클라이언트가 GET /api/slides/<uid> 호출해서 payload 로드
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `TELEGRAM_WEBHOOK_ENABLED`
+- `TELEGRAM_DEFAULT_CHAT_ID`
+- `TELEGRAM_ALLOWED_CHAT_IDS`
+- `TELEGRAM_PM_ONLY_MODE`
+- `PM_DISPATCH_ENABLED`
+- `PM_CODEX_ENABLED`
+- `PM_CODEX_MODE`
+- `CODEX_BRIDGE_URL`
+- `CODEX_REPO_SLUG`
 
-[4] GET /api/slides/<uid>
-    → outputs/{uid}_slides.json 반환
+대시보드/보안:
 
-[5] POST /api/slides/<uid>/update
-    → 슬라이드 수정 후 outputs/{uid}_slides.json 재저장
-    → .pptx 파일은 생성하지 않음
+- `TEACHON_ADMIN_TOKEN`
+- `TEACHON_ADMIN_USERNAME`
+- `TEACHON_ADMIN_PASSWORD`
+- `TEACHON_ADMIN_PASSWORD_HASH`
+- `TEACHON_DASHBOARD_IP_ALLOWLIST`
 
-[6] GET /download/<uid>
-    → outputs/{uid}_slides.json 로드
-    → generate_pptx_bytes() 로 메모리에서 .pptx 생성 (BytesIO)
-    → 파일 저장 없이 스트리밍 다운로드
-    → ?name=파일명.pptx 쿼리로 다운로드 파일명 지정 가능
-```
+## 현재 아키텍처 요약
 
-> **중요**: `/download/<uid>`는 요청 시점에 PPT를 즉시 재생성한다. 디스크에 .pptx 파일이 없어도 동작하지만, `outputs/{uid}_slides.json`이 없으면 404.
+### 1. 사용자 생성 플로우
 
----
+- `POST /api/analyze/start`
+  PDF 업로드 후 비동기 분석 작업 생성
+- `GET /api/analyze/status/<job_id>`
+  분석 상태 폴링
+- `POST /api/generate`
+  슬라이드/디자인 기준으로 최종 산출물 저장
+- `GET /preview/<uid>`
+  저장된 payload 기반 미리보기/편집
+- `GET /download/<uid>`
+  저장된 PPT 아티팩트 다운로드
 
-## 슬라이드 JSON 스키마
+### 2. 멀티 에이전트 파이프라인
 
-Claude가 반환하고 시스템 전체에서 사용하는 공통 구조.
+전체 stage 순서는 [flows/full_pipeline.py](./flows/full_pipeline.py) 기준이다.
 
-```json
-[
-  { "type": "title",   "title": "강의 제목", "subtitle": "부제목" },
-  { "type": "agenda",  "title": "목차", "items": ["주제1", "주제2"] },
-  {
-    "type": "content",
-    "title": "슬라이드 제목",
-    "subtitle": "선택적 보조 제목",
-    "layout": "classic|split|card|highlight|process|compare|auto",
-    "source_pages": "12-14",
-    "points": ["핵심 포인트1", "핵심 포인트2"],
-    "notes": "발표자 노트",
-    "content_kind": "explain|process|compare|case|data",
-    "image_bundle_uid": "abc12345",
-    "image_asset_name": "img_001.png",
-    "image_page": 7,
-    "compare_left_title": "핵심 A",
-    "compare_right_title": "핵심 B",
-    "compare_left_points": ["..."],
-    "compare_right_points": ["..."],
-    "diagram_steps": ["1단계", "2단계", "3단계"]
-  },
-  { "type": "summary", "title": "핵심 요약", "points": ["요약1", "요약2"] }
-]
-```
+1. PM kickoff
+2. curriculum
+3. content + question 병렬 초안
+4. fact_checker
+5. reviewer
+6. layout
+7. PM final review
+8. formatter trace 반영 후 export
 
-**content_kind** (slide_quality.py가 키워드 기반으로 자동 추론):
-- `explain`: 일반 설명 (기본값)
-- `process`: 단계/절차 흐름 → `diagram_steps` 필드 자동 생성
-- `compare`: 두 관점 비교 → `compare_*` 필드 자동 생성
-- `case`: 사례/예시
-- `data`: 수치/지표 중심
+관련 런타임:
 
-**layout** (Claude가 제안, slide_quality가 content_kind 기반으로 보정):
-`classic` | `split` | `card` | `highlight` | `process` | `compare` | `auto`
+- [agents/](./agents)
+- [tasks/](./tasks)
+- [crews/](./crews)
+- [flows/](./flows)
+- [core/agent_control.py](./core/agent_control.py)
 
----
+### 3. 대시보드 / 운영 레이어
 
-## Design Config 스키마
+대시보드는 다음을 다룬다.
 
-`/api/generate` 요청의 `design` 필드. 모든 시각 스타일을 담는 객체.
+- 최근 작업/결과 overview
+- 보안 상태
+- connector 등록/테스트
+- 수동 agent task 실행
+- Slack 상태
+- Telegram 상태
 
-```json
-{
-  "preset": "corporate",
-  "primary_color": null,
-  "accent_color": null,
-  "font_name": "Malgun Gothic",
-  "company_name": "",
-  "presenter_name": "",
-  "logo_uid": null,
-  "footer_text": "",
-  "footer_enabled": true,
-  "slide_number": true,
-  "content_layout": "auto",
-  "title_font_size": 32,
-  "subtitle_font_size": 18,
-  "body_font_size": 18
-}
-```
+핵심 파일:
 
-- `preset`: 8종 중 하나 — `corporate` | `startup` | `academic` | `creative` | `terra` | `mono` | `forest` | `pastel`
-- `primary_color` / `accent_color`: hex 문자열(`"#4A90D9"`)로 override. `null`이면 preset 색상 사용
-- `logo_uid`: `/api/upload-logo` 응답의 uid. `uploads/logo_{uid}.{ext}` 경로로 저장됨
-- `content_layout`: content 슬라이드 레이아웃 전역 설정. `auto`면 슬라이드별 layout 필드 우선
-- 하위 호환: `theme` 문자열만 전달 시 `_coerce_design()`이 design 객체로 자동 변환
+- [app.py](./app.py)
+- [core/dashboard_service.py](./core/dashboard_service.py)
+- [templates/dashboard.html](./templates/dashboard.html)
 
----
+### 4. 저장 구조
 
-## API 엔드포인트 목록
+현재는 산출물이 디스크에도 저장된다.
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/` | 메인 페이지 |
-| GET | `/preview/<uid>` | 슬라이드 뷰어 페이지 |
-| POST | `/api/analyze` | PDF 분석 → slides JSON |
-| POST | `/api/generate` | slides → {uid}_slides.json 저장, 응답에 preview_uid 반환 |
-| GET | `/api/slides/<uid>` | outputs/{uid}_slides.json payload 반환 |
-| POST | `/api/slides/<uid>/update` | 슬라이드 수정 후 JSON 재저장 |
-| POST | `/api/review-slides` | 슬라이드 품질 검사만 수행 |
-| GET | `/api/presets` | 디자인 프리셋 목록 반환 |
-| GET | `/api/fonts` | 지원 폰트 목록 반환 |
-| GET | `/api/capabilities` | 서버 기능 (`ocr_available` 등) |
-| POST | `/api/upload-logo` | 로고 이미지 업로드 |
-| GET | `/api/logo/<logo_uid>` | 로고 이미지 반환 |
-| GET | `/api/pdf-asset/<bundle_uid>/<asset_name>` | PDF에서 추출한 이미지 반환 |
-| GET | `/api/history` | 생성 히스토리 (history.json) |
-| GET | `/download/<uid>` | .pptx 스트리밍 다운로드 (메모리에서 즉시 생성) |
+- `uploads/{uid}.pdf`
+- `uploads/logo_{uid}.{ext}`
+- `uploads/assets_{uid}/img_*.png`
+- `outputs/{uid}_slides.json`
+- `outputs/pptx/{uid}.pptx`
+- `outputs/docx/{uid}_*.docx`
+- `outputs/dashboard/connectors.json`
+- `outputs/dashboard/agent_tasks.json`
+- `outputs/dashboard/slack_activity.json`
+- `outputs/dashboard/telegram_activity.json`
+- `outputs/dashboard/telegram_threads.json`
+- `outputs/dashboard/pm_threads.json`
 
-> **변경 이력**: 구버전의 `/download/<filename>` 엔드포인트는 `/download/<uid>`로 교체됨.
+## 주요 파일 맵
 
----
+- [app.py](./app.py): Flask 라우터 전체, 산출물 저장/수정, dashboard API, Slack/Telegram webhook
+- [config.py](./config.py): 디렉터리/환경변수/LLM 설정
+- [core/claude_analyzer.py](./core/claude_analyzer.py): PDF 기반 슬라이드 초안 분석
+- [core/pdf_parser.py](./core/pdf_parser.py): 페이지 선택, 이미지 추출, PDF 파싱 보조
+- [core/ppt_generator.py](./core/ppt_generator.py): PPTX 생성
+- [core/slide_quality.py](./core/slide_quality.py): 슬라이드 품질 보정
+- [core/slide_enricher.py](./core/slide_enricher.py): PDF 이미지와 슬라이드 매핑
+- [core/slide_variants.py](./core/slide_variants.py): 슬라이드 시안 생성
+- [core/agent_control.py](./core/agent_control.py): 수동 agent task 생성/실행/비동기 완료 처리
+- [core/slack_service.py](./core/slack_service.py): Slack transport layer
+- [core/telegram_service.py](./core/telegram_service.py): Telegram transport layer
+- [core/pm_dispatcher.py](./core/pm_dispatcher.py): Telegram PM command/router
+- [core/figma_client.py](./core/figma_client.py): Figma REST client
+- [tools/figma_tool.py](./tools/figma_tool.py): Figma CLI helper
+- [skills/teachon-agent-system/](./skills/teachon-agent-system): Codex local skill source
 
-## 모듈별 역할 상세
+## Figma 현재 상태
 
-### app.py
-- 시작 시 `sys.stdout/stderr`를 UTF-8로 강제 재설정 (Render Linux ASCII 기본값 대응)
-- logging 핸들러도 UTF-8로 설정
-- `UID_RE = re.compile(r"^[a-f0-9]{8}$")`: 모든 uid 파라미터 검증 (경로 탐색 공격 방지)
-- `_resolve_media_assets(assets)`: asset 경로 존재 여부 확인 후 resolved_assets 반환 (파일 없으면 graceful skip)
-- `_coerce_design(body)`: theme 문자열 → design 객체 변환 (하위 호환)
-- 에러 핸들러: `except Exception as exc: traceback.print_exc()` → Render 로그에서 traceback 확인 가능
+현재 붙어 있는 것은 Figma REST 읽기/연결 점검 레이어다.
 
-### core/claude_analyzer.py
-- `analyze_pdf(pdf_path, slide_count, page_range, extra_prompt)` → slides list
-- 100페이지 이하: 단일 Claude API 호출 (`claude-opus-4-5` 모델)
-- 100페이지 초과: 청크별 요약(`CHUNK_SYSTEM_PROMPT`) → 종합(`FINAL_SYSTEM_PROMPT`) 2단계
-- `_load_json(raw_text)`: JSON 파싱 시 앞뒤 설명 텍스트 자동 제거 후 파싱 (Claude가 JSON 외 텍스트를 추가하는 케이스 대응)
-- 슬라이드 JSON에 `layout`, `source_pages` 필드를 Claude가 직접 채움
+구현됨:
 
-### core/pdf_parser.py
-- `resolve_page_selection(pdf_path, page_hint, max_pages_per_chunk)` → page_plan dict
-  - 숫자 범위("1-5, 8") → `parse_page_range()`
-  - 텍스트 힌트("서론 부분") → `select_pages_by_text_hint()` (TF-IDF 유사 점수 계산)
-  - 힌트 없음 → 전체 페이지
-- `extract_pdf_images()` → PDF 내 이미지 추출, `uploads/assets_{uid}/` 저장
-- `extract_pages_as_bytes()` → 특정 페이지만 포함한 PDF bytes 반환
+- `.env`의 `FIGMA_ACCESS_TOKEN` 사용
+- `GET /v1/me`
+- `GET /v1/files/:key`
+- `GET /v1/files/:key/meta`
+- 대시보드 connector 등록용 helper
+- dashboard connector auth type `x_figma_token_env`
 
-### core/ppt_generator.py
-- `_build_presentation(slides_data, design, media_assets)` → `Presentation` 객체 (공유 코어)
-- `generate_pptx(slides_data, output_path, design, media_assets)` → 디스크 저장 (하위 호환용, 현재 미사용)
-- `generate_pptx_bytes(slides_data, design, media_assets)` → `BytesIO` (스트리밍 다운로드용, 현재 사용)
-- `_resolve_theme(design)` → PRESETS + brand override → Resolved Theme dict
-- 슬라이드 타입별 렌더 함수: `_title_slide`, `_agenda_slide`, `_content_slide_*`, `_summary_slide`
-- content_layout별 렌더 함수 (전부 구현 완료):
-  - `_content_slide_classic`: 불릿 리스트 + 선택적 이미지
-  - `_content_slide_split`: 좌측 컬러 패널 + 우측 내용
-  - `_content_slide_card`: 카드 그리드 (3×2)
-  - `_content_slide_highlight`: 첫 포인트 강조 박스
-  - `_content_slide_process`: 단계 흐름도 (화살표 연결)
-  - `_content_slide_compare`: 좌우 2분할 비교
-- `PRESETS`: 8종 프리셋 — `colors`, `header_style`, `bullet_style`, `density`
-  - `header_style`: `full` | `bottom_line` | `left_bar`
-  - `bullet_style`: `circle` | `square` | `number` | `dash`
-  - `density`: `compact` | `standard` | `spacious`
-- `LEGACY_THEME_PRESET_MAP`: `navy` → `corporate`, `terra` → `terra`, etc.
-- `SUPPORTED_FONTS`: 맑은 고딕, 나눔고딕, 나눔바른고딕, 나눔명조, 프리텐다드, 애플 SD 고딕
+핵심 파일:
 
-### core/slide_quality.py
-- `review_slides(slides_data, selected_pages)` → `{ slides, outline, quality }` dict
-  - `infer_content_kind()`: 키워드 기반 content_kind 자동 추론
-  - `_kind_layout()`: content_kind에 맞게 layout 필드 보정
-  - `_normalize_source_pages()`: source_pages 정규화
-  - `_dedupe_points()`: 중복 포인트 제거 (최대 5개)
-  - `_ensure_notes()`: 발표자 노트 없으면 제목+첫 포인트 기반 자동 생성
-  - `_derive_process_payload()`: process 슬라이드에 `diagram_steps` 필드 생성
-  - `_derive_compare_payload()`: compare 슬라이드에 `compare_*` 필드 생성
-- `build_outline(slides)` → 슬라이드 목차 구조 반환
-- `build_quality_summary(slides)` → 품질 경고 dict 반환
+- [core/figma_client.py](./core/figma_client.py)
+- [tools/figma_tool.py](./tools/figma_tool.py)
+- [core/dashboard_service.py](./core/dashboard_service.py)
+- [templates/dashboard.html](./templates/dashboard.html)
 
-### core/slide_enricher.py
-- `attach_pdf_images_to_slides(slides, assets)` → 이미지-슬라이드 매핑
-- `source_pages` 기준으로 같은 페이지 이미지 우선 매칭 (distance 기반 스코어링)
-- 이미 매핑된 이미지 재사용 방지 (`used_asset_keys` 추적)
+관련 문서:
 
-### core/history.py
-- `add_record(pdf_name, uid, slide_count, theme)` → history.json에 추가 (최대 50개)
-  - `uid`: generate endpoint에서 생성된 preview_uid 저장 (다운로드 링크용)
-- `get_history()` → 전체 히스토리 반환
+- [docs/teachon_design_inventory.md](./docs/teachon_design_inventory.md)
+- [docs/teachon_screen_map.md](./docs/teachon_screen_map.md)
+- [docs/figma_project_structure.md](./docs/figma_project_structure.md)
+- [docs/figma_layer_naming_system.md](./docs/figma_layer_naming_system.md)
+- [docs/figma_build_sequence.md](./docs/figma_build_sequence.md)
 
----
+중요:
 
-## 파일 저장 구조
+- 아직 Figma canvas write는 없음
+- 지금 세션 기준 구현은 REST read + 운영 문서 + connector 등록까지
+- Figma에 실제 프레임/레이어를 쓰려면 Plugin API 또는 Figma MCP write 경로가 다음 단계
 
-```
-uploads/
-├── logo_{uid}.{ext}             # 업로드된 로고 (영구 보관)
-└── assets_{uid}/
-    ├── img_001.png              # PDF에서 추출한 이미지들
-    └── img_002.png
+## Codex Skill 현재 상태
 
-outputs/
-└── {uid}_slides.json            # 미리보기 + 다운로드용 payload
-                                 # .pptx 파일은 저장하지 않음 (메모리에서 즉시 생성)
-```
+Teach-On 전용 운영 문서를 local skill 형태로 정리해 두었다.
 
-> PDF 원본(`{uid}.pdf`)과 OCR 처리본(`{uid}_ocr.pdf`)은 분석 완료 후 `finally` 블록에서 즉시 삭제.
+- skill root: [skills/teachon-agent-system/SKILL.md](./skills/teachon-agent-system/SKILL.md)
+- agent reference:
+  - [pm.md](./skills/teachon-agent-system/references/pm.md)
+  - [curriculum.md](./skills/teachon-agent-system/references/curriculum.md)
+  - [content.md](./skills/teachon-agent-system/references/content.md)
+  - [fact_checker.md](./skills/teachon-agent-system/references/fact_checker.md)
+  - [question.md](./skills/teachon-agent-system/references/question.md)
+  - [reviewer.md](./skills/teachon-agent-system/references/reviewer.md)
+  - [layout.md](./skills/teachon-agent-system/references/layout.md)
+  - [formatter.md](./skills/teachon-agent-system/references/formatter.md)
+  - [system-map.md](./skills/teachon-agent-system/references/system-map.md)
 
-**`{uid}_slides.json` 저장 구조**:
-```json
-{
-  "slides": [...],
-  "outline": [...],
-  "quality": { "warnings": [...], "content_count": 8, ... },
-  "design": { "preset": "corporate", ... },
-  "assets": [{ "bundle_uid": "abc12345", "asset_name": "img_001.png", "page": 3 }],
-  "page_plan": { "mode": "all", "selected_pages": [...] },
-  "pdf_name": "강의자료.pdf",
-  "download_name": "강의자료_강의교안.pptx"
-}
-```
+로컬 환경에서는 `~/.codex/skills/teachon-agent-system` 심볼릭 링크로 연결한 상태를 전제로 작업했다.
 
----
+## 마지막 작업 상세 정리
 
-## 개발 원칙
+이 섹션은 다음 세션에서 바로 이어받기 위한 handoff 메모다.
 
-- `ANTHROPIC_API_KEY`는 `.env`에서만 관리. 코드에 하드코딩 금지. `.env`는 커밋 금지.
-- uid 검증은 반드시 `UID_RE = re.compile(r"^[a-f0-9]{8}$")`로. 경로 탐색 공격 방지.
-- 파일 다운로드명은 `_sanitize_download_name()`으로 특수문자 제거 후 사용.
-- PDF는 처리 완료 후 즉시 삭제 (finally 블록). 로고와 이미지 번들은 영구 보관.
-- 슬라이드 JSON은 항상 `slide_quality.review_slides()`를 거친 후 ppt_generator에 전달.
-- python-pptx 좌표계: Inches 단위. 슬라이드 크기 13.33 × 7.5 Inches (16:9).
-- OCR 기능(ocrmypdf + tesseract)은 선택적 — `OCR_AVAILABLE`로 체크 후 사용. Render 서버는 미지원이므로 UI에서 OCR 섹션 자체를 숨김.
-- **Linux/Render UTF-8 인코딩**: `PYTHONUTF8=1` + `app.py` 시작 시 `sys.stdout.reconfigure(utf-8)` 이중 설정. 서드파티 라이브러리(anthropic SDK 등)의 로그에 Unicode가 포함될 때 발생하는 `UnicodeEncodeError` 방지.
-- **.pptx 디스크 저장 없음**: Render free tier는 ephemeral 파일시스템이라 재시작 시 파일이 사라짐. `generate_pptx_bytes()` → `BytesIO` 스트리밍으로 대응. 다운로드 요청마다 JSON에서 PPT를 즉시 재생성.
+작성 시점 기준 마지막 큰 작업은 `PM 전용 Telegram 운영 채널 1차 구현`이다.
 
----
+### 무엇을 구현했는가
 
-## Render 배포 주의사항
+Telegram에서 일반 agent 목록을 노출하지 않고, 사용자가 PM과만 대화하는 운영 경로를 추가했다.
 
-- **Free tier 제약**: 15분 비활성 시 슬립 (첫 요청 30~50초 지연). 재시작 시 `uploads/`, `outputs/` 내 파일 모두 소실.
-- **영구 보관 필요 파일** (현재 미적용): 로고(`uploads/logo_*`), 슬라이드 JSON(`outputs/*_slides.json`). Render Disk(유료) 또는 S3 연동으로 해결 가능.
-- **대용량 PDF 주의**: 100페이지 초과 시 청크 분석으로 Claude API 다중 호출. 분석 시간이 길어져 Render 요청 타임아웃(기본 30초) 가능성 있음. gunicorn timeout은 120초로 설정했으나 Render 자체 제한이 우선.
-- **배포 방식**: GitHub main 브랜치 push → Render 자동 감지 → pip install + 재시작.
+구현된 항목:
 
----
+- Telegram runtime env/config 추가
+- Telegram webhook 수신 라우트 추가
+- Telegram dashboard status/test-post API 추가
+- Telegram activity/thread 저장 추가
+- PM inbox 전용 command/router 추가
+- Telegram에서 생성된 manual agent task 결과를 같은 chat으로 회신하는 경로 추가
+- agent task payload에 Telegram transport 메타데이터 추가
 
-## 현재 완료된 기능
+### 추가된/핵심 파일
 
-- [x] PDF 업로드 + 페이지 범위 지정 (숫자/텍스트 힌트)
-- [x] Claude API 분석 (claude-opus-4-5, 100페이지 초과 시 청크 처리)
-- [x] 슬라이드 JSON 생성 + 품질 검사
-- [x] PDF 이미지 추출 + 슬라이드 매핑
-- [x] 8종 디자인 프리셋 (백엔드 구현 완료)
-- [x] 6종 content layout 렌더러 (classic/split/card/highlight/process/compare)
-- [x] 브랜드 커스터마이저 (primary_color, accent_color, font, logo, company_name)
-- [x] 슬라이드 미리보기 페이지 (`/preview/<uid>`)
-- [x] .pptx 스트리밍 다운로드 (디스크 저장 없음)
-- [x] 생성 히스토리 (`/api/history`)
-- [x] Render 배포 (Procfile, gunicorn, UTF-8 인코딩 대응)
+- [config.py](./config.py)
+  - `TELEGRAM_*`, `PM_*`, `CODEX_*` 환경변수 추가
+  - Telegram/PM dashboard 저장 파일 경로 추가
 
-## 미완료 / 다음 작업
+- [core/telegram_service.py](./core/telegram_service.py)
+  - `verify_request()`
+  - `telegram_status()`
+  - `record_telegram_activity()`
+  - `record_thread_context()`
+  - `send_message()`
+  - `send_document()`
+  - `answer_callback_query()`
+  - `extract_update_context()`
 
-- [ ] **프론트엔드 UI 연동**: 8종 프리셋 선택 UI, 브랜드 커스터마이저 패널, 레이아웃 선택 UI (CODEX_SPEC.md 참고)
-- [ ] **preview.html 편집 패널**: 슬라이드 내용 직접 편집 + `/api/slides/<uid>/update` 연동 완성
-- [ ] **영구 스토리지**: 로고/슬라이드 JSON을 S3 또는 Render Disk에 저장 (재시작 후 복원)
-- [ ] **대용량 PDF 진행 상황 표시**: Server-Sent Events로 분석 진행률 스트리밍
+- [core/pm_dispatcher.py](./core/pm_dispatcher.py)
+  - `/start`, `/help`, `/jobs`, `/status`, `/share`, `/feedback`, `/pm`, `/work`
+  - `TELEGRAM_PM_ONLY_MODE=true` 면 일반 텍스트도 PM inbox로 전달
+  - `PM_DISPATCH_ENABLED=true` 여야 PM task 실제 생성
+  - PM thread 로그는 `outputs/dashboard/pm_threads.json`
+
+- [core/agent_control.py](./core/agent_control.py)
+  - `transport`
+  - `transport_chat_id`
+  - `transport_message_id`
+  - `parent_task_id`
+  - `delegated_by`
+  필드 추가
+
+- [app.py](./app.py)
+  - `POST /telegram/webhook`
+  - `GET /api/dashboard/telegram/status`
+  - `POST /api/dashboard/telegram/test-post`
+  - Telegram task 완료 시 `_post_agent_task_result_to_telegram()`
+  - webhook 수신 후 background thread에서 PM dispatcher 실행
+
+### 현재 Telegram 명령 세트
+
+- `/start`
+- `/help`
+- `/jobs`
+- `/status <uid-or-job>`
+- `/share <uid>`
+- `/feedback <uid> <message>`
+- `/pm <message>`
+- `/work <message>`
+
+PM only mode가 켜져 있으면 일반 메시지도 `/pm`처럼 동작한다.
+
+### 현재 동작 한계
+
+이 부분이 중요하다.
+
+지금의 `pm` 은 아직 “실제 하위 agent와 Codex를 자동 위임하는 실행형 PM”이 아니다.
+
+현재 상태:
+
+- Telegram -> PM dispatcher -> `pm` manual task 생성 은 동작
+- PM task 결과를 Telegram으로 돌려주는 구조도 동작
+- 하지만 PM이 내부적으로 reviewer/content/layout 등을 자동 분기해서 여러 task를 만드는 로직은 아직 없음
+- `PM_CODEX_ENABLED`, `PM_CODEX_MODE`, `CODEX_BRIDGE_URL`, `CODEX_REPO_SLUG` 는 설계용 env이고 실제 Codex orchestration은 아직 구현 전
+
+즉, 지금은 `PM 전용 Telegram inbox` 까지는 구현됐고, `실행형 PM dispatcher` 는 다음 단계다.
+
+### 검증 상태
+
+완료:
+
+- `python3 -m compileall config.py core app.py`
+- `python3 -m py_compile core/pm_dispatcher.py core/telegram_service.py core/agent_control.py config.py`
+- `pm_dispatcher.handle_telegram_message()` 스모크 테스트
+- `telegram_service.extract_update_context()` 스모크 테스트
+
+제한:
+
+- 이 셸 환경에서는 `PyMuPDF(fitz)` import가 빠져 있어서 `app.py` 를 실제 Flask test client로 import해 webhook 엔드투엔드 검증까지는 못 했다
+- 즉 Telegram 관련 신설 코드의 문법/모듈 레벨 검증은 됐고, 앱 전체 런타임 검증은 로컬 실행 환경에서 다시 확인 필요
+
+### 다음 세션에서 바로 할 일
+
+우선순위 순서:
+
+1. `.env` 실제 값 확인
+   - `PUBLIC_BASE_URL`
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_WEBHOOK_SECRET`
+   - `TELEGRAM_WEBHOOK_ENABLED=true`
+   - `PM_DISPATCH_ENABLED=true`
+
+2. Telegram webhook 등록
+   - endpoint: `POST /telegram/webhook`
+   - secret header는 `X-Telegram-Bot-Api-Secret-Token`
+
+3. dashboard에서 연결 상태 점검
+   - `GET /api/dashboard/telegram/status`
+   - `POST /api/dashboard/telegram/test-post`
+
+4. 실제 private chat에서 `/help`, `/jobs`, `/pm ...` 테스트
+
+5. 다음 구현
+   - PM이 내부 agent를 자동 위임하는 JSON dispatcher
+   - PM -> Codex cloud/local bridge 연동
+   - Telegram inline keyboard
+   - dashboard UI에 Telegram 섹션 노출
+   - 필요하면 artifact 전송을 `sendDocument()` 기준으로 연결
+
+## 관련 설계 문서
+
+- [docs/telegram_agent_integration_plan.md](./docs/telegram_agent_integration_plan.md)
+- [docs/telegram_pm_codex_remote_dev_plan.md](./docs/telegram_pm_codex_remote_dev_plan.md)
+- [docs/admin_security_plan.md](./docs/admin_security_plan.md)
+
+## 운영 메모
+
+- Render 배포는 `main` push 기준 자동 배포
+- gunicorn 설정은 [Procfile](./Procfile) 참고
+- UTF-8 강제 설정은 서버/로그/응답 안정성을 위해 유지 중
+- dashboard auth와 IP allowlist는 같이 고려해야 함
+- 수동 agent task는 dashboard/Slack/Telegram 모두 [core/agent_control.py](./core/agent_control.py) 를 공통 사용
+
+## 다시 시작할 때 빠르게 볼 파일
+
+다음 세션에서 먼저 열어볼 추천 순서:
+
+1. [CLAUDE.md](./CLAUDE.md)
+2. [app.py](./app.py)
+3. [config.py](./config.py)
+4. [core/pm_dispatcher.py](./core/pm_dispatcher.py)
+5. [core/telegram_service.py](./core/telegram_service.py)
+6. [core/agent_control.py](./core/agent_control.py)
+7. [docs/telegram_pm_codex_remote_dev_plan.md](./docs/telegram_pm_codex_remote_dev_plan.md)
