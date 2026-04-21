@@ -1,0 +1,4 @@
+interface:
+  display_name: "Teach-On Agent System"
+  short_description: "Teach-On 멀티에이전트 파이프라인 운영 가이드"
+  default_prompt: "Use $teachon-agent-system to update a Teach-On agent prompt, pipeline contract, or chat-integration flow."
